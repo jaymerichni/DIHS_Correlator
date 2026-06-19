@@ -2,15 +2,15 @@ import os
 
 import pandas as pd
 
-from Tephra_Correlator_Refactored.core.clustering import recursive_cluster
-from Tephra_Correlator_Refactored.core.dihs import compute_dihs_metrics
-from Tephra_Correlator_Refactored.core.transforms import (
+from DIHS_Correlator.core.clustering import recursive_cluster
+from DIHS_Correlator.core.dihs import compute_dihs_metrics
+from DIHS_Correlator.core.transforms import (
     BASE_TRANSFORMATIONS,
     apply_transformation,
     set_feature_columns,
 )
-from Tephra_Correlator_Refactored.io.output_paths import cluster_dir, ensure_dir, pairwise_dir, tree_dir
-from Tephra_Correlator_Refactored.io.writers import (
+from DIHS_Correlator.io.output_paths import cluster_dir, ensure_dir, pairwise_dir, tree_dir
+from DIHS_Correlator.io.writers import (
     save_dataframe,
     save_pairwise_matrices_all_depths,
     save_pairwise_total_matrix,

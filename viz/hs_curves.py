@@ -46,9 +46,6 @@ def plot_hs_curves(
     """
     Plot HS vs depth as curves.
 
-    - Simple runs: use with_shade=False, value_col='harmonic_score'
-    - Perturbative summaries: use with_shade=True, value_col='harmonic_score_mean',
-      std_col='harmonic_score_std', force_root_one=True
     """
     if value_col not in df.columns:
         raise ValueError(f"value_col='{value_col}' not found in dataframe.")

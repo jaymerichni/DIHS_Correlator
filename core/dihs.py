@@ -20,8 +20,8 @@ def compute_dihs_metrics(
     exclude_self=False,
 ):
     """
-    This function processes the output dataframe generated through recursive clustering and returns Harmonic Score per-depth and DIHS computations.
-    If the compute_pairwise flag is activated then HS per-depth and DIHS are computed pairwise between all classes.
+    This function processes the output dataframe generated through recursive clustering and returns Harmonic Score per-depth and DIHS computations;
+    if the compute_pairwise flag is activated then HS per-depth and DIHS are computed pairwise between all classes.
     """
 
     model_cap = model_type.title()

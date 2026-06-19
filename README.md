@@ -14,7 +14,7 @@ Python implementation and API of the DIHS-based tephra correlation framework pre
 Import from package root:
 
 ```python
-from Tephra_Correlator_Refactored import (
+from DIHS_Correlator import (
     simple_run,
     triple_run,
     perturbative_simple_run,
@@ -26,7 +26,7 @@ from Tephra_Correlator_Refactored import (
 Simple run (single model without uncertainty propagation):
 
 ```python
-hs_df = simple_run(
+hs_dict = simple_run(
     df=my_dataframe, # table with geochemical data
     model_type="kmeans", # clustering model for recursive binary partition of the dataset (choose from "kmeans", "gaussian" or "agglomerative")
     transform_type="clr", # CoDa transformation of the data (choose from none, "scaled", "clr" or "ilr")
@@ -43,7 +43,7 @@ hs_df = simple_run(
     save_cluster_data = False, # (switch) create a folder for each generated partition with its corresponding geochemical data as a csv; if save_untransformed=False, the data saved is transformed
     save_untransformed = False, # (switch) does nothing if save_cluster_data = False; if True, cluster data is saved untransformed
     verbose = True, # (switch) if True, progress comments are printed on terminal
-    return_details = False, # (switch) receive DIHS totals, pairwise outputs, and artifact paths on final dataframe (hs_df)
+    return_details = False, # (switch) receive DIHS totals, pairwise outputs, and artifact paths on final dictionary (hs_dict)
 )
 ```
 
@@ -106,7 +106,7 @@ NOTE: For perturbative runs, `dihs_summary` is computed from per-iteration HS tr
 Perturbative triple run (agglomerative + kmeans + gaussian with uncertainty propagation):
 
 ```python
-hs_mean_df = perturbative_triple_run(
+hs_mean_dict = perturbative_triple_run(
     df = my_dataframe,
     transform_type = "scaled",
     unknown_sample = "Caio",
@@ -135,7 +135,7 @@ hs_mean_df = perturbative_triple_run(
 Pseudo-unknown calibration run (single model):
 
 ```python
-pseudo_df = pseudo_unknown_run(
+pseudo_dict = pseudo_unknown_run(
     df = my_dataframe,
     model_type = "gaussian",
     transform_type = "clr",

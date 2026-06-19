@@ -4,13 +4,13 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from Tephra_Correlator_Refactored.core.transforms import BASE_TRANSFORMATIONS
-from Tephra_Correlator_Refactored.viz.pseudo_unknown import (
+from DIHS_Correlator.core.transforms import BASE_TRANSFORMATIONS
+from DIHS_Correlator.viz.pseudo_unknown import (
     plot_margin_comparison,
     plot_margin_histogram,
     plot_threshold_diagnostics,
 )
-from Tephra_Correlator_Refactored.workflows.single_run import CorrelationRunner
+from DIHS_Correlator.workflows.single_run import CorrelationRunner
 
 
 TRANSFORM_NAME_TO_ID = {v: k for k, v in BASE_TRANSFORMATIONS.items()}

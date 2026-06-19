@@ -8,34 +8,29 @@ import pandas as pd
 
 from math import comb
 
-from Tephra_Correlator_Refactored.core.transforms import BASE_TRANSFORMATIONS
-from Tephra_Correlator_Refactored.viz.hs_curves import plot_hs_curves
-from Tephra_Correlator_Refactored.viz.pairwise import plot_pairwise_matrix
-from Tephra_Correlator_Refactored.viz.pseudo_unknown import (
+from DIHS_Correlator.core.transforms import BASE_TRANSFORMATIONS
+from DIHS_Correlator.viz.hs_curves import plot_hs_curves
+from DIHS_Correlator.viz.pairwise import plot_pairwise_matrix
+from DIHS_Correlator.viz.pseudo_unknown import (
     plot_margin_comparison,
     plot_margin_histogram,
     plot_perturbative_calibration_overlay,
 )
-from Tephra_Correlator_Refactored.workflows.method_comparison import (
-    run_method_comparison,
-    run_direct_unknown_sample_size_curve,
-)
-from Tephra_Correlator_Refactored.workflows.pseudo_unknown import (
+
+from DIHS_Correlator.workflows.pseudo_unknown import (
     run_pseudo_unknown_experiments,
 )
-from Tephra_Correlator_Refactored.workflows.single_run import CorrelationRunner
+from DIHS_Correlator.workflows.single_run import CorrelationRunner
 
 SUPPORTED_MODELS = ("agglomerative", "kmeans", "gaussian")
 TRANSFORM_NAME_TO_ID = {v: k for k, v in BASE_TRANSFORMATIONS.items()}
 DEFAULT_MAJOR_COLS = ["SIO2N","TIO2N","AL2O3N","FE2O3TN","CAON","MGON","MNON","NA2ON","K2ON","P2O5N"]
 DEFAULT_TRACE_COLS = ["NbN", "ZrN", "LaN", "CeN", "SrN", "BaN", "RbN"]
 
-# Whether to print progress messages
 def _log(verbose: bool, message: str):
     if verbose:
         print(message)
 
-# Progress bar for perturbative runs
 def _print_progress(current: int, total: int, width: int = 30):
     if total <= 0:
         return
@@ -46,7 +41,6 @@ def _print_progress(current: int, total: int, width: int = 30):
     if current >= total:
         print()
 
-# Get transform ID from name
 def _normalize_transform_type(transform_type: str) -> int:
     if not isinstance(transform_type, str):
         raise ValueError(
@@ -57,7 +51,6 @@ def _normalize_transform_type(transform_type: str) -> int:
         raise ValueError(f"Unsupported transform_type='{transform_type}'.")
     return TRANSFORM_NAME_TO_ID[key]
 
-# Identify unknown sample's class code
 def _resolve_unknown_class(
     df: pd.DataFrame, unknown_sample: Any, class_column: str = "controlcode"
 ) -> Any:
@@ -83,13 +76,11 @@ def _resolve_unknown_class(
         f"Unknown sample '{unknown_sample}' was not found in class column '{class_column}'."
     )
 
-# Build working dataframe
 def _prepare_working_df(df: pd.DataFrame, class_column: str) -> pd.DataFrame:
     if class_column not in df.columns:
         raise ValueError(f"Class column '{class_column}' not found in dataframe.")
     return df.copy()
 
-# Run a single model/transform combination
 def _run_single_model(
     *,
     df: pd.DataFrame,
@@ -110,7 +101,6 @@ def _run_single_model(
     verbose: bool = True,
 ) -> dict[str, Any]:
     
-    # Process inputs and validate parameters
     model = model_type.lower().strip()
     if model not in SUPPORTED_MODELS:
         raise ValueError(f"Unsupported model_type='{model_type}'.")
@@ -1543,146 +1533,3 @@ def calibrate_perturbative_resolvedness_from_outputs(
     if return_details:
         return out
     return out["perturbative_calibrated_runs"]
-
-
-def method_comparison_run(
-    *,
-    df: pd.DataFrame,
-    unknown_sample: Any | None = None,
-    class_column: str = "controlcode",
-    model_type: str = "agglomerative",
-    transform_type: str = "clr",
-    random_state: int | None = None,
-    n_perturbations: int = 100,
-    major_cols: list[str] | None = None,
-    trace_cols: list[str] | None = None,
-    major_error: float = 0.02,
-    trace_error: float = 0.10,
-    perturbation_seed: int | None = None,
-    run_benchmark: bool = True,
-    run_pseudo_unknown: bool = True,
-    pseudo_unknown_sample_size: int = 17,
-    pseudo_unknown_iterations: int = 10,
-    excluded_classes: list[Any] | None = None,
-    max_depth: int = 100,
-    exclude_columns=(),
-    plot_everything: bool = False,
-    write_files: bool = False,
-    output_dir: str = "./Results_method_comparison",
-    plot_output_dir: str | None = None,
-    verbose: bool = True,
-    return_details: bool = False,
-):
-    """
-    Compare DIHS against the Stage-1 baseline set:
-    centroid distance, single-cut co-association, and persistence.
-    """
-    result = run_method_comparison(
-        df=df,
-        unknown_sample=unknown_sample,
-        class_column=class_column,
-        model_type=model_type,
-        transform_type=transform_type,
-        random_state=random_state,
-        n_perturbations=n_perturbations,
-        major_cols=major_cols,
-        trace_cols=trace_cols,
-        major_error=major_error,
-        trace_error=trace_error,
-        perturbation_seed=perturbation_seed,
-        run_benchmark=run_benchmark,
-        run_pseudo_unknown=run_pseudo_unknown,
-        pseudo_unknown_sample_size=pseudo_unknown_sample_size,
-        pseudo_unknown_iterations=pseudo_unknown_iterations,
-        excluded_classes=excluded_classes,
-        max_depth=max_depth,
-        exclude_columns=exclude_columns,
-        plot_everything=plot_everything,
-        write_files=write_files,
-        output_dir=output_dir,
-        plot_output_dir=plot_output_dir,
-        verbose=verbose,
-    )
-    if return_details:
-        return result
-    return result["main_comparison_table"]
-
-def direct_unknown_sample_size_run(
-    *,
-    df: pd.DataFrame,
-    unknown_sample: Any,
-    true_source_class: Any,
-    class_column: str = "controlcode",
-    model_type: str = "agglomerative",
-    transform_type: str = "clr",
-    sample_sizes: list[int] | tuple[int, ...] = (3, 5, 10, 15, 20),
-    n_sampling_iterations: int = 100,
-    random_state: int | None = None,
-    max_depth: int = 100,
-    major_cols: list[str] | None = None,
-    trace_cols: list[str] | None = None,
-    major_error: float = 0.02,
-    trace_error: float = 0.10,
-    perturbation_seed: int | None = None,
-    exclude_columns=(),
-    write_files: bool = False,
-    output_dir: str = "./Results_direct_unknown_sample_size",
-    verbose: bool = True,
-    return_details: bool = False,
-):
-    """
-    Run direct unknown sample-size benchmarking.
-
-    n_sampling_iterations is interpreted by the lower-level workflow as a cap.
-    For each sample size, the workflow uses:
-
-        min(n_sampling_iterations, number_of_possible_unique_subsets)
-
-    and avoids repeating sampled unknown subsets within that sample size.
-    """
-    result = run_direct_unknown_sample_size_curve(
-        df=df,
-        unknown_sample=unknown_sample,
-        true_source_class=true_source_class,
-        class_column=class_column,
-        model_type=model_type,
-        transform_type=transform_type,
-        sample_sizes=sample_sizes,
-        n_sampling_iterations=n_sampling_iterations,
-        random_state=random_state,
-        max_depth=max_depth,
-        major_cols=major_cols,
-        trace_cols=trace_cols,
-        major_error=major_error,
-        trace_error=trace_error,
-        perturbation_seed=perturbation_seed,
-        exclude_columns=exclude_columns,
-        verbose=verbose,
-    )
-
-    if write_files:
-        os.makedirs(output_dir, exist_ok=True)
-
-        summary_path = os.path.join(
-            output_dir,
-            "direct_unknown_sample_size_summary.csv",
-        )
-        runs_path = os.path.join(
-            output_dir,
-            "direct_unknown_sample_size_runs.csv",
-        )
-
-        result["method_summary_by_sample_size"].to_csv(summary_path, index=False)
-        result["comparison_runs_by_sample_size"].to_csv(runs_path, index=False)
-
-        result["artifacts"] = {
-            "summary_csv": summary_path,
-            "runs_csv": runs_path,
-        }
-    else:
-        result["artifacts"] = {}
-
-    if return_details:
-        return result
-
-    return result["method_summary_by_sample_size"]

@@ -10,8 +10,7 @@ from sklearn.mixture import GaussianMixture
 
 def create_model(model_type, random_state=None, **kwargs):
     """
-    This function builds the clustering model based on the specified type. 
-    It also controls the initialization parameters in the non-deterministic models.
+    This function builds the clustering model based on the specified type; it also controls the initialization parameters in the non-deterministic models
     """
 
     if model_type == "agglomerative":
@@ -47,7 +46,7 @@ def recursive_cluster(
     class_column="controlcode",
 ):
     """
-    This function is for recursively clustering the data and storing the resulting hierarchical tree.
+    This function is for recursively clustering the data and storing the resulting hierarchical tree
     """
 
     model_name = model_type.title()
