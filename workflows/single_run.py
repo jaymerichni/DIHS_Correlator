@@ -112,7 +112,7 @@ class CorrelationRunner:
             "path": "initial",
             "depth": 0,
             "label": -1,
-            "data_path": initial_dataset_path,
+            "data_path": initial_dataset_path if self.save_cluster_data else None,
         }
 
         # Select class and depth columns for metrics computation

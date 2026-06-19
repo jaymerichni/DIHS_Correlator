@@ -82,6 +82,26 @@ def _prepare_working_df(df: pd.DataFrame, class_column: str) -> pd.DataFrame:
         raise ValueError(f"Class column '{class_column}' not found in dataframe.")
     return df.copy()
 
+
+def _class_key(value: Any) -> str:
+    if pd.isna(value):
+        return "<NA>"
+    if isinstance(value, (np.integer, int)):
+        return str(int(value))
+    if isinstance(value, (np.floating, float)) and float(value).is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _class_match_mask(values: pd.Series, target: Any) -> pd.Series:
+    target_key = _class_key(target)
+    return values.apply(lambda value: _class_key(value) == target_key)
+
+
+def _finite_float_values(values) -> np.ndarray:
+    arr = np.asarray(values, dtype=float)
+    return arr[np.isfinite(arr)]
+
 def _run_single_model(
     *,
     df: pd.DataFrame,
@@ -797,6 +817,8 @@ def _build_perturbative_calibration_outputs(
     margins = calibrated_runs["dihs_margin"].to_numpy(dtype=float)
     calibrated_precision = calibrated_runs["calibrated_precision"].to_numpy(dtype=float)
     calibrated_coverage = calibrated_runs["calibrated_coverage"].to_numpy(dtype=float)
+    finite_precision = _finite_float_values(calibrated_precision)
+    finite_coverage = _finite_float_values(calibrated_coverage)
 
     mean_margin = float(np.mean(margins))
     median_margin = float(np.median(margins))
@@ -810,23 +832,28 @@ def _build_perturbative_calibration_outputs(
         "margin_median": float(np.median(margins)),
         "margin_std": float(np.std(margins, ddof=1)) if len(margins) > 1 else np.nan,
         "margin_iqr": float(np.percentile(margins, 75) - np.percentile(margins, 25)),
-        "calibrated_precision_mean": float(np.nanmean(calibrated_precision)),
-        "calibrated_precision_median": float(np.nanmedian(calibrated_precision)),
+        "calibrated_precision_mean": (
+            float(np.mean(finite_precision)) if finite_precision.size else np.nan
+        ),
+        "calibrated_precision_median": (
+            float(np.median(finite_precision)) if finite_precision.size else np.nan
+        ),
         "calibrated_precision_std": (
-            float(np.nanstd(calibrated_precision, ddof=1))
-            if np.sum(np.isfinite(calibrated_precision)) > 1
+            float(np.std(finite_precision, ddof=1))
+            if finite_precision.size > 1
             else np.nan
         ),
         "calibrated_precision_iqr": (
-            float(
-                np.nanpercentile(calibrated_precision, 75)
-                - np.nanpercentile(calibrated_precision, 25)
-            )
-            if np.any(np.isfinite(calibrated_precision))
+            float(np.percentile(finite_precision, 75) - np.percentile(finite_precision, 25))
+            if finite_precision.size
             else np.nan
         ),
-        "calibrated_coverage_mean": float(np.nanmean(calibrated_coverage)),
-        "calibrated_coverage_median": float(np.nanmedian(calibrated_coverage)),
+        "calibrated_coverage_mean": (
+            float(np.mean(finite_coverage)) if finite_coverage.size else np.nan
+        ),
+        "calibrated_coverage_median": (
+            float(np.median(finite_coverage)) if finite_coverage.size else np.nan
+        ),
         "precision_at_mean_margin": mean_stats["precision"],
         "coverage_at_mean_margin": mean_stats["coverage"],
         "precision_at_median_margin": median_stats["precision"],
@@ -1095,8 +1122,12 @@ def perturbative_simple_run(
             eps_trace = rng.uniform(-trace_error, trace_error, size=x_trace.shape)
             perturbed[trace_cols_resolved] = x_trace * (1.0 + eps_trace)
 
-        iter_out = os.path.join(output_dir, f"iter_{it:03d}") if write_files else output_dir
-        if write_files:
+        iter_out = (
+            os.path.join(output_dir, f"iter_{it:03d}")
+            if (write_files or save_cluster_data)
+            else output_dir
+        )
+        if write_files or save_cluster_data:
             os.makedirs(iter_out, exist_ok=True)
             artifacts["iteration_dirs"].append(iter_out)
 
@@ -1576,3 +1607,674 @@ def calibrate_perturbative_resolvedness_from_outputs(
     if return_details:
         return out
     return out["perturbative_calibrated_runs"]
+
+
+def _normalize_target_precisions(
+    target_precisions: list[float] | None,
+) -> list[float]:
+    precisions = sorted(
+        {float(value) for value in (target_precisions or [0.95, 0.90, 0.85, 0.80, 0.75])},
+        reverse=True,
+    )
+    if not precisions:
+        raise ValueError("target_precisions must contain at least one value.")
+    for precision in precisions:
+        if not 0 < precision <= 1:
+            raise ValueError("All target_precisions must be in the interval (0, 1].")
+    return precisions
+
+
+def _compute_perturbative_margins_at_depth(
+    hs_iterations: pd.DataFrame,
+    *,
+    integration_depth: int,
+) -> pd.DataFrame:
+    if hs_iterations.empty:
+        raise ValueError("No perturbative HS iterations were found to calibrate.")
+
+    if int(integration_depth) < 0:
+        raise ValueError("integration_depth must be >= 0.")
+
+    max_depth_per_iter = hs_iterations.groupby("iteration", as_index=False)["depth_level"].max()
+    if max_depth_per_iter.empty:
+        raise ValueError("No perturbative depth information was found to calibrate.")
+
+    too_shallow = max_depth_per_iter[max_depth_per_iter["depth_level"] < int(integration_depth)]
+    if not too_shallow.empty:
+        raise ValueError(
+            f"Requested integration_depth={integration_depth} exceeds the depth reached by "
+            f"{len(too_shallow)} perturbative iterations."
+        )
+
+    rows = []
+    for iteration, sub in hs_iterations.groupby("iteration", as_index=False):
+        row = _compute_margin_from_hs_metrics(
+            metrics_df=sub,
+            integration_depth=int(integration_depth),
+        )
+        if row is None:
+            continue
+        row["iteration"] = int(iteration)
+        rows.append(row)
+
+    margins = pd.DataFrame(rows)
+    if margins.empty:
+        raise ValueError(
+            f"No perturbative margins could be computed at integration_depth={integration_depth}."
+        )
+    return margins
+
+
+def _select_top1_candidate_for_calibration(
+    perturbative_result: dict[str, Any],
+    *,
+    unknown_class: Any,
+    model: str,
+) -> dict[str, Any]:
+    top1_frequency = perturbative_result["top1_frequency"].copy()
+    dihs_summary = perturbative_result["dihs_summary"].copy()
+
+    if not dihs_summary.empty:
+        dihs_summary = dihs_summary[
+            dihs_summary["neighbor_unit"].apply(_class_key) != _class_key(unknown_class)
+        ].copy()
+        dihs_summary["neighbor_unit_key"] = dihs_summary["neighbor_unit"].apply(_class_key)
+        dihs_summary = dihs_summary.sort_values(
+            ["total_product_mean", "total_product_std", "neighbor_unit_key"],
+            ascending=[False, True, True],
+        ).reset_index(drop=True)
+
+    mean_rank_map = {
+        row["neighbor_unit_key"]: idx
+        for idx, (_, row) in enumerate(dihs_summary.iterrows(), start=1)
+    }
+    dihs_lookup = {
+        row["neighbor_unit_key"]: row.to_dict() for _, row in dihs_summary.iterrows()
+    }
+
+    selection_method = "top1_frequency"
+    if not top1_frequency.empty:
+        top1_frequency = top1_frequency.copy()
+        top1_frequency["neighbor_unit_key"] = top1_frequency["neighbor_unit"].apply(_class_key)
+        max_fraction = float(top1_frequency["top1_fraction"].max())
+        winners = top1_frequency[
+            np.isclose(top1_frequency["top1_fraction"].astype(float), max_fraction)
+        ].copy()
+        if len(winners) > 1:
+            winners["mean_rank"] = winners["neighbor_unit_key"].map(mean_rank_map).fillna(np.inf)
+            winners = winners.sort_values(
+                ["mean_rank", "wins", "neighbor_unit_key"],
+                ascending=[True, False, True],
+            ).reset_index(drop=True)
+            chosen = winners.iloc[0]
+            selection_method = "top1_frequency_tie_broken_by_mean_dihs"
+            warnings.warn(
+                f"Model '{model}' produced a Top-1 frequency tie across "
+                f"{winners['neighbor_unit'].tolist()}. "
+                f"Using '{chosen['neighbor_unit']}' for pseudo-unknown calibration.",
+                stacklevel=3,
+            )
+        else:
+            chosen = winners.iloc[0]
+    elif not dihs_summary.empty:
+        chosen_row = dihs_summary.iloc[0]
+        chosen = pd.Series(
+            {
+                "neighbor_unit": chosen_row["neighbor_unit"],
+                "neighbor_unit_key": chosen_row["neighbor_unit_key"],
+                "wins": np.nan,
+                "top1_fraction": np.nan,
+            }
+        )
+        selection_method = "mean_dihs_fallback"
+        warnings.warn(
+            f"Model '{model}' did not produce Top-1 frequency data. "
+            f"Using the highest mean DIHS class '{chosen_row['neighbor_unit']}' "
+            f"for pseudo-unknown calibration.",
+            stacklevel=3,
+        )
+    else:
+        raise ValueError(
+            f"Model '{model}' did not produce any candidate DIHS values for Top-1 calibration."
+        )
+
+    chosen_key = (
+        chosen["neighbor_unit_key"]
+        if "neighbor_unit_key" in chosen.index
+        else _class_key(chosen["neighbor_unit"])
+    )
+    chosen_mean = dihs_lookup.get(chosen_key, {})
+    secondary_rows = dihs_summary[dihs_summary["neighbor_unit_key"] != chosen_key].head(1)
+    secondary = secondary_rows.iloc[0].to_dict() if not secondary_rows.empty else {}
+
+    wins = chosen.get("wins", np.nan)
+    return {
+        "model": model,
+        "top1_class": chosen["neighbor_unit"],
+        "top1_class_key": chosen_key,
+        "top1_frequency": (
+            float(chosen["top1_fraction"]) if pd.notna(chosen["top1_fraction"]) else np.nan
+        ),
+        "top1_wins": int(wins) if pd.notna(wins) else np.nan,
+        "top1_mean_dihs": chosen_mean.get("total_product_mean", np.nan),
+        "top1_dihs_std": chosen_mean.get("total_product_std", np.nan),
+        "top1_dihs_rank": mean_rank_map.get(chosen_key, np.nan),
+        "top2_class": secondary.get("neighbor_unit", np.nan),
+        "top2_class_key": secondary.get("neighbor_unit_key", np.nan),
+        "top2_mean_dihs": secondary.get("total_product_mean", np.nan),
+        "top2_dihs_std": secondary.get("total_product_std", np.nan),
+        "selection_method": selection_method,
+    }
+
+
+def _select_pseudo_unknown_outputs_at_depth(
+    pseudo_unknown_result: dict[str, Any],
+    *,
+    integration_depth: int,
+    target_precisions: list[float],
+) -> dict[str, pd.DataFrame]:
+    run_results_by_depth = pseudo_unknown_result["run_results_by_depth"]
+    if run_results_by_depth.empty:
+        raise ValueError("No pseudo-unknown run results were produced for calibration.")
+
+    pseudo_results = run_results_by_depth[
+        run_results_by_depth["integration_depth"] == int(integration_depth)
+    ].copy()
+    if pseudo_results.empty:
+        raise ValueError(
+            f"No pseudo-unknown runs were found at integration_depth={integration_depth}."
+        )
+
+    threshold_curve_by_depth = pseudo_unknown_result["threshold_curve_by_depth"]
+    if not threshold_curve_by_depth.empty and "integration_depth" in threshold_curve_by_depth.columns:
+        threshold_curve = threshold_curve_by_depth[
+            threshold_curve_by_depth["integration_depth"] == int(integration_depth)
+        ].copy()
+    else:
+        threshold_curve = threshold_curve_by_depth.copy()
+
+    thresholds_by_target_precision_by_depth = pseudo_unknown_result[
+        "thresholds_by_target_precision_by_depth"
+    ]
+    if (
+        not thresholds_by_target_precision_by_depth.empty
+        and "integration_depth" in thresholds_by_target_precision_by_depth.columns
+    ):
+        thresholds_by_target_precision = thresholds_by_target_precision_by_depth[
+            thresholds_by_target_precision_by_depth["integration_depth"]
+            == int(integration_depth)
+        ].copy()
+    else:
+        thresholds_by_target_precision = thresholds_by_target_precision_by_depth.copy()
+
+    if not thresholds_by_target_precision.empty:
+        thresholds_by_target_precision = thresholds_by_target_precision[
+            thresholds_by_target_precision["target_precision"].astype(float).isin(
+                [float(value) for value in target_precisions]
+            )
+        ].copy()
+
+    return {
+        "pseudo_results": pseudo_results,
+        "threshold_curve": threshold_curve,
+        "thresholds_by_target_precision": thresholds_by_target_precision,
+    }
+
+
+def _flatten_threshold_summary(
+    thresholds_by_target_precision: pd.DataFrame,
+) -> dict[str, Any]:
+    summary = {}
+    for _, row in thresholds_by_target_precision.iterrows():
+        pct = int(round(100.0 * float(row["target_precision"])))
+        summary[f"resolvedness_threshold_{pct}"] = (
+            float(row["resolvedness_threshold"])
+            if pd.notna(row["resolvedness_threshold"])
+            else np.nan
+        )
+        summary[f"precision_above_threshold_{pct}"] = (
+            float(row["precision_above_threshold"])
+            if pd.notna(row["precision_above_threshold"])
+            else np.nan
+        )
+        summary[f"coverage_above_threshold_{pct}"] = (
+            float(row["coverage_above_threshold"])
+            if pd.notna(row["coverage_above_threshold"])
+            else np.nan
+        )
+        summary[f"n_runs_above_threshold_{pct}"] = (
+            int(row["n_runs_above_threshold"])
+            if pd.notna(row["n_runs_above_threshold"])
+            else np.nan
+        )
+    return summary
+
+
+def perturbative_triple_run_with_resolvedness(
+    *,
+    df: pd.DataFrame,
+    transform_type: str = "clr",
+    unknown_sample: Any = 0,
+    class_column: str = "controlcode",
+    random_state: int | None = None,
+    n_iterations: int = 100,
+    major_cols: list[str] | None = None,
+    trace_cols: list[str] | None = None,
+    major_error: float = 0.02,
+    trace_error: float = 0.10,
+    perturbation_seed: int | None = None,
+    compute_pairwise: bool = True,
+    plot_everything: bool = False,
+    write_files: bool = False,
+    output_dir: str = "./Results_perturbative_triple_resolvedness",
+    plot_output_dir: str | None = None,
+    max_depth: int = 100,
+    exclude_columns=(),
+    save_cluster_data: bool = False,
+    save_untransformed: bool = False,
+    pseudo_unknown_iterations: int = 100,
+    pseudo_unknown_sample_size: int | None = None,
+    pseudo_unknown_random_state: int | None = None,
+    target_precisions: list[float] | None = None,
+    min_runs_above_threshold: int = 1,
+    integration_depth: int | None = None,
+    verbose: bool = True,
+    return_details: bool = False,
+):
+    """Run perturbative triple correlation plus Top-1 pseudo-unknown resolvedness calibration."""
+    work_df = _prepare_working_df(df, class_column=class_column)
+    unknown_class = _resolve_unknown_class(
+        work_df, unknown_sample, class_column=class_column
+    )
+    precision_targets = _normalize_target_precisions(target_precisions)
+
+    if pseudo_unknown_sample_size is None:
+        inferred_size = int(_class_match_mask(work_df[class_column], unknown_class).sum())
+        if inferred_size <= 0:
+            raise ValueError(
+                "Could not infer pseudo_unknown_sample_size from the unknown sample rows. "
+                "Pass pseudo_unknown_sample_size explicitly."
+            )
+        pseudo_sample_size = inferred_size
+    else:
+        pseudo_sample_size = int(pseudo_unknown_sample_size)
+        if pseudo_sample_size <= 0:
+            raise ValueError("pseudo_unknown_sample_size must be > 0.")
+
+    if int(pseudo_unknown_iterations) <= 0:
+        raise ValueError("pseudo_unknown_iterations must be > 0.")
+    if int(min_runs_above_threshold) <= 0:
+        raise ValueError("min_runs_above_threshold must be > 0.")
+
+    pseudo_random_state = (
+        random_state if pseudo_unknown_random_state is None else pseudo_unknown_random_state
+    )
+
+    summary_rows = []
+    model_results = {}
+
+    _log(
+        verbose,
+        "Starting perturbative triple run with Top-1 pseudo-unknown resolvedness calibration...",
+    )
+    _log(
+        verbose,
+        f"Unknown class resolved to: {unknown_class} | Pseudo-unknown sample size: {pseudo_sample_size}",
+    )
+
+    for model in SUPPORTED_MODELS:
+        _log(verbose, f"Model {model}: perturbative ensemble")
+        model_root = os.path.join(output_dir, model)
+        perturbative_output_dir = os.path.join(model_root, "perturbative")
+        pseudo_output_dir = os.path.join(model_root, "pseudo_unknown")
+        resolvedness_output_dir = os.path.join(model_root, "resolvedness")
+
+        perturbative_plot_dir = None
+        resolvedness_plot_dir = None
+        if plot_everything:
+            if plot_output_dir is None:
+                perturbative_plot_dir = os.path.join(model_root, "Plots", "perturbative")
+                resolvedness_plot_dir = os.path.join(model_root, "Plots", "resolvedness")
+            else:
+                perturbative_plot_dir = os.path.join(plot_output_dir, model, "perturbative")
+                resolvedness_plot_dir = os.path.join(plot_output_dir, model, "resolvedness")
+
+        perturbative_result = perturbative_simple_run(
+            df=work_df,
+            model_type=model,
+            transform_type=transform_type,
+            unknown_sample=unknown_class,
+            class_column=class_column,
+            random_state=random_state,
+            n_iterations=n_iterations,
+            major_cols=major_cols,
+            trace_cols=trace_cols,
+            major_error=major_error,
+            trace_error=trace_error,
+            perturbation_seed=perturbation_seed,
+            compute_pairwise=compute_pairwise,
+            plot_everything=plot_everything,
+            write_files=write_files,
+            output_dir=perturbative_output_dir,
+            plot_output_dir=perturbative_plot_dir,
+            max_depth=max_depth,
+            exclude_columns=exclude_columns,
+            save_cluster_data=save_cluster_data,
+            save_untransformed=save_untransformed,
+            verbose=verbose,
+            return_details=True,
+        )
+
+        top1_candidate = _select_top1_candidate_for_calibration(
+            perturbative_result,
+            unknown_class=unknown_class,
+            model=model,
+        )
+        top1_key = top1_candidate["top1_class_key"]
+
+        pseudo_df = work_df.loc[
+            ~_class_match_mask(work_df[class_column], unknown_class)
+        ].copy()
+        top1_mask = _class_match_mask(pseudo_df[class_column], top1_candidate["top1_class"])
+        top1_source_count = int(top1_mask.sum())
+        if top1_source_count <= pseudo_sample_size:
+            raise ValueError(
+                f"Model '{model}' selected Top-1 class '{top1_candidate['top1_class']}', "
+                f"but it contains {top1_source_count} rows after removing the real unknown "
+                f"class and therefore cannot support pseudo-unknown sample_size={pseudo_sample_size}."
+            )
+
+        excluded_classes = [
+            value
+            for value in pseudo_df[class_column].drop_duplicates().tolist()
+            if _class_key(value) != top1_key
+        ]
+
+        _log(
+            verbose,
+            f"Model {model}: pseudo-unknown calibration on Top-1 class '{top1_candidate['top1_class']}'",
+        )
+        pseudo_unknown_result = pseudo_unknown_run(
+            df=pseudo_df,
+            model_type=model,
+            transform_type=transform_type,
+            class_column=class_column,
+            sample_size=pseudo_sample_size,
+            n_iterations=pseudo_unknown_iterations,
+            excluded_classes=excluded_classes,
+            random_state=pseudo_random_state,
+            max_depth=max_depth,
+            exclude_columns=exclude_columns,
+            target_precision=max(precision_targets),
+            reported_precisions=precision_targets,
+            min_runs_above_threshold=min_runs_above_threshold,
+            plot_everything=False,
+            write_files=write_files,
+            output_dir=pseudo_output_dir,
+            plot_output_dir=None,
+            verbose=verbose,
+            return_details=True,
+        )
+
+        perturbative_common_depth = perturbative_result["common_depth_level"]
+        pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
+        if integration_depth is None:
+            available_depths = [
+                int(depth)
+                for depth in (perturbative_common_depth, pseudo_common_depth)
+                if depth is not None
+            ]
+            if not available_depths:
+                raise ValueError(
+                    f"Model '{model}' did not produce a common integration depth."
+                )
+            chosen_depth = min(available_depths)
+        else:
+            chosen_depth = int(integration_depth)
+            if chosen_depth < 0:
+                raise ValueError("integration_depth must be >= 0.")
+            if (
+                perturbative_common_depth is not None
+                and chosen_depth > int(perturbative_common_depth)
+            ):
+                raise ValueError(
+                    f"Requested integration_depth={chosen_depth} exceeds the perturbative "
+                    f"common depth {perturbative_common_depth} for model '{model}'."
+                )
+            if pseudo_common_depth is not None and chosen_depth > int(pseudo_common_depth):
+                raise ValueError(
+                    f"Requested integration_depth={chosen_depth} exceeds the pseudo-unknown "
+                    f"common depth {pseudo_common_depth} for model '{model}'."
+                )
+
+        perturbative_margins = _compute_perturbative_margins_at_depth(
+            perturbative_result["hs_iterations"],
+            integration_depth=chosen_depth,
+        )
+        pseudo_depth_outputs = _select_pseudo_unknown_outputs_at_depth(
+            pseudo_unknown_result,
+            integration_depth=chosen_depth,
+            target_precisions=precision_targets,
+        )
+
+        calibrated_runs, calibration_summary, regime_summary = (
+            _build_perturbative_calibration_outputs(
+                pseudo_results=pseudo_depth_outputs["pseudo_results"],
+                perturbative_margins=perturbative_margins,
+                thresholds_by_target_precision=pseudo_depth_outputs[
+                    "thresholds_by_target_precision"
+                ],
+                target_precisions=precision_targets,
+                integration_depth=chosen_depth,
+            )
+        )
+
+        transform_name = str(transform_type).strip().lower()
+        hs_summary = perturbative_result["hs_mean_per_depth"]
+        if not hs_summary.empty and "transform" in hs_summary.columns:
+            transform_name = str(hs_summary["transform"].iloc[0])
+
+        summary_row = calibration_summary.iloc[0].to_dict()
+        summary_row.update(
+            {
+                "model": model,
+                "transform": transform_name,
+                "unknown_class": unknown_class,
+                "top1_class": top1_candidate["top1_class"],
+                "top1_class_key": top1_candidate["top1_class_key"],
+                "top1_frequency": top1_candidate["top1_frequency"],
+                "top1_wins": top1_candidate["top1_wins"],
+                "top1_mean_dihs": top1_candidate["top1_mean_dihs"],
+                "top1_dihs_std": top1_candidate["top1_dihs_std"],
+                "top1_dihs_rank": top1_candidate["top1_dihs_rank"],
+                "top2_class": top1_candidate["top2_class"],
+                "top2_class_key": top1_candidate["top2_class_key"],
+                "top2_mean_dihs": top1_candidate["top2_mean_dihs"],
+                "top2_dihs_std": top1_candidate["top2_dihs_std"],
+                "top1_selection_method": top1_candidate["selection_method"],
+                "empirical_resolvedness": summary_row["precision_at_mean_margin"],
+                "n_pseudo_runs_above_mean_margin": _compute_precision_at_threshold(
+                    pseudo_depth_outputs["pseudo_results"],
+                    threshold=summary_row["margin_mean"],
+                )["n_runs_above_threshold"],
+                "perturbative_iterations": int(n_iterations),
+                "pseudo_unknown_iterations": int(pseudo_unknown_iterations),
+                "pseudo_unknown_sample_size": int(pseudo_sample_size),
+                "top1_source_count": int(top1_source_count),
+                "calibration_depth": int(chosen_depth),
+                "perturbative_common_depth_level": perturbative_common_depth,
+                "pseudo_unknown_common_depth_level": pseudo_common_depth,
+            }
+        )
+        summary_row.update(
+            _flatten_threshold_summary(
+                pseudo_depth_outputs["thresholds_by_target_precision"]
+            )
+        )
+        summary_rows.append(summary_row)
+
+        resolvedness_artifacts = {}
+        top1_summary_df = pd.DataFrame([top1_candidate])
+        resolvedness_summary_df = pd.DataFrame([summary_row])
+
+        if write_files:
+            os.makedirs(resolvedness_output_dir, exist_ok=True)
+            top1_summary_path = os.path.join(
+                resolvedness_output_dir, "top1_candidate_summary.csv"
+            )
+            perturbative_margins_path = os.path.join(
+                resolvedness_output_dir, "perturbative_margins_for_depth.csv"
+            )
+            pseudo_results_path = os.path.join(
+                resolvedness_output_dir, "pseudo_unknown_runs_for_depth.csv"
+            )
+            threshold_curve_path = os.path.join(
+                resolvedness_output_dir, "pseudo_unknown_threshold_curve_for_depth.csv"
+            )
+            target_thresholds_path = os.path.join(
+                resolvedness_output_dir,
+                "pseudo_unknown_target_thresholds_for_depth.csv",
+            )
+            calibrated_runs_path = os.path.join(
+                resolvedness_output_dir, "perturbative_calibrated_runs.csv"
+            )
+            calibration_summary_path = os.path.join(
+                resolvedness_output_dir, "perturbative_calibration_summary.csv"
+            )
+            regime_summary_path = os.path.join(
+                resolvedness_output_dir, "perturbative_regime_summary.csv"
+            )
+            resolvedness_summary_path = os.path.join(
+                resolvedness_output_dir, "resolvedness_summary.csv"
+            )
+
+            top1_summary_df.to_csv(top1_summary_path, index=False)
+            perturbative_margins.to_csv(perturbative_margins_path, index=False)
+            pseudo_depth_outputs["pseudo_results"].to_csv(pseudo_results_path, index=False)
+            pseudo_depth_outputs["threshold_curve"].to_csv(threshold_curve_path, index=False)
+            pseudo_depth_outputs["thresholds_by_target_precision"].to_csv(
+                target_thresholds_path, index=False
+            )
+            calibrated_runs.to_csv(calibrated_runs_path, index=False)
+            calibration_summary.to_csv(calibration_summary_path, index=False)
+            regime_summary.to_csv(regime_summary_path, index=False)
+            resolvedness_summary_df.to_csv(resolvedness_summary_path, index=False)
+
+            resolvedness_artifacts.update(
+                {
+                    "top1_candidate_summary_csv": top1_summary_path,
+                    "perturbative_margins_csv": perturbative_margins_path,
+                    "pseudo_unknown_runs_csv": pseudo_results_path,
+                    "threshold_curve_csv": threshold_curve_path,
+                    "target_thresholds_csv": target_thresholds_path,
+                    "calibrated_runs_csv": calibrated_runs_path,
+                    "calibration_summary_csv": calibration_summary_path,
+                    "regime_summary_csv": regime_summary_path,
+                    "resolvedness_summary_csv": resolvedness_summary_path,
+                }
+            )
+
+        if plot_everything:
+            os.makedirs(resolvedness_plot_dir, exist_ok=True)
+            mean_margin = float(summary_row["margin_mean"])
+            empirical_resolvedness = summary_row["empirical_resolvedness"]
+            threshold_label = (
+                f"Empirical resolvedness = {100.0 * empirical_resolvedness:.0f}% | "
+                f"perturbative mean = {mean_margin:.3f}"
+                if np.isfinite(empirical_resolvedness)
+                else f"Perturbative mean = {mean_margin:.3f}"
+            )
+            title_suffix = (
+                f"{transform_name} + {model} | Top-1 = {top1_candidate['top1_class']}"
+            )
+            comparison_plot_path = os.path.join(
+                resolvedness_plot_dir, "resolvedness_margin_comparison.svg"
+            )
+            histogram_plot_path = os.path.join(
+                resolvedness_plot_dir, "resolvedness_margin_histogram.svg"
+            )
+            overlay_plot_path = os.path.join(
+                resolvedness_plot_dir, "resolvedness_calibration_overlay.svg"
+            )
+
+            plot_margin_comparison(
+                results_df=pseudo_depth_outputs["pseudo_results"],
+                output_path=comparison_plot_path,
+                threshold=mean_margin,
+                threshold_label=threshold_label,
+                perturbative_margins=perturbative_margins["dihs_margin"].to_numpy(
+                    dtype=float
+                ),
+                integration_depth=chosen_depth,
+                target_precision=max(precision_targets),
+                title=f"Top-1 pseudo-unknown resolvedness | {title_suffix}",
+            )
+            plot_margin_histogram(
+                results_df=pseudo_depth_outputs["pseudo_results"],
+                output_path=histogram_plot_path,
+                threshold=mean_margin,
+                threshold_label=threshold_label,
+                perturbative_margins=perturbative_margins["dihs_margin"].to_numpy(
+                    dtype=float
+                ),
+                integration_depth=chosen_depth,
+                target_precision=max(precision_targets),
+                title=f"Resolvedness margin distributions | {title_suffix}",
+            )
+            plot_perturbative_calibration_overlay(
+                threshold_curve=pseudo_depth_outputs["threshold_curve"],
+                perturbative_runs=calibrated_runs,
+                pseudo_results=pseudo_depth_outputs["pseudo_results"],
+                output_path=overlay_plot_path,
+                title=f"Resolvedness calibration overlay | {title_suffix}",
+            )
+
+            resolvedness_artifacts.update(
+                {
+                    "margin_comparison_plot_path": comparison_plot_path,
+                    "margin_histogram_plot_path": histogram_plot_path,
+                    "calibration_overlay_plot_path": overlay_plot_path,
+                }
+            )
+
+        model_results[model] = {
+            "perturbative": perturbative_result,
+            "pseudo_unknown": pseudo_unknown_result,
+            "resolvedness": {
+                "integration_depth": int(chosen_depth),
+                "top1_candidate_summary": top1_summary_df,
+                "perturbative_margins": perturbative_margins,
+                "pseudo_results": pseudo_depth_outputs["pseudo_results"],
+                "threshold_curve": pseudo_depth_outputs["threshold_curve"],
+                "thresholds_by_target_precision": pseudo_depth_outputs[
+                    "thresholds_by_target_precision"
+                ],
+                "perturbative_calibrated_runs": calibrated_runs,
+                "perturbative_calibration_summary": calibration_summary,
+                "perturbative_regime_summary": regime_summary,
+                "resolvedness_summary": resolvedness_summary_df,
+                "artifacts": resolvedness_artifacts,
+            },
+        }
+
+    summary_df = pd.DataFrame(summary_rows)
+    root_artifacts = {}
+    if write_files:
+        os.makedirs(output_dir, exist_ok=True)
+        summary_path = os.path.join(
+            output_dir, "perturbative_triple_resolvedness_summary.csv"
+        )
+        summary_df.to_csv(summary_path, index=False)
+        root_artifacts["summary_csv"] = summary_path
+
+    out = {
+        "summary": summary_df,
+        "models": model_results,
+        "unknown_class": unknown_class,
+        "pseudo_unknown_sample_size": int(pseudo_sample_size),
+        "target_precisions": precision_targets,
+        "artifacts": root_artifacts,
+    }
+    if return_details:
+        return out
+    return out["summary"]

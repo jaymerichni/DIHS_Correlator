@@ -355,6 +355,23 @@ def _build_precision_threshold_table(
     rows = []
     ordered_targets = sorted({float(x) for x in target_precisions}, reverse=True)
 
+    if threshold_curve.empty:
+        for target in ordered_targets:
+            rows.append(
+                {
+                    "target_precision": target,
+                    "resolvedness_threshold": np.nan,
+                    "precision_above_threshold": np.nan,
+                    "coverage_above_threshold": np.nan,
+                    "n_runs_above_threshold": 0,
+                    "n_total_runs": int(n_total_runs),
+                    "n_valid_runs": int(n_valid_runs),
+                    "n_eligible_classes": int(n_eligible_classes),
+                    "min_runs_above_threshold": int(min_runs_above_threshold),
+                }
+            )
+        return pd.DataFrame(rows)
+
     for target in ordered_targets:
         selected = threshold_curve[
             (threshold_curve["precision"] >= target)
@@ -625,15 +642,40 @@ def run_pseudo_unknown_experiments(
         min_runs_above_threshold=min_runs_above_threshold,
         n_eligible_classes=len(eligible_classes),
     )
-    threshold_curve = threshold_curve_by_depth[
-        threshold_curve_by_depth["integration_depth"] == common_depth_level
-    ].copy() if common_depth_level is not None else pd.DataFrame()
-    thresholds_by_target_precision = thresholds_by_target_precision_by_depth[
-        thresholds_by_target_precision_by_depth["integration_depth"] == common_depth_level
-    ].copy() if common_depth_level is not None else pd.DataFrame()
-    threshold_summary = threshold_summary_by_depth[
-        threshold_summary_by_depth["integration_depth"] == common_depth_level
-    ].copy() if common_depth_level is not None else pd.DataFrame()
+    threshold_curve = (
+        threshold_curve_by_depth[
+            threshold_curve_by_depth["integration_depth"] == common_depth_level
+        ].copy()
+        if (
+            common_depth_level is not None
+            and not threshold_curve_by_depth.empty
+            and "integration_depth" in threshold_curve_by_depth.columns
+        )
+        else pd.DataFrame()
+    )
+    thresholds_by_target_precision = (
+        thresholds_by_target_precision_by_depth[
+            thresholds_by_target_precision_by_depth["integration_depth"]
+            == common_depth_level
+        ].copy()
+        if (
+            common_depth_level is not None
+            and not thresholds_by_target_precision_by_depth.empty
+            and "integration_depth" in thresholds_by_target_precision_by_depth.columns
+        )
+        else pd.DataFrame()
+    )
+    threshold_summary = (
+        threshold_summary_by_depth[
+            threshold_summary_by_depth["integration_depth"] == common_depth_level
+        ].copy()
+        if (
+            common_depth_level is not None
+            and not threshold_summary_by_depth.empty
+            and "integration_depth" in threshold_summary_by_depth.columns
+        )
+        else pd.DataFrame()
+    )
 
     main_threshold_row = thresholds_by_target_precision[
         thresholds_by_target_precision["target_precision"] == float(target_precision)

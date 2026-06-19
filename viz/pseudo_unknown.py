@@ -420,7 +420,7 @@ def plot_perturbative_calibration_overlay(
         x_max = x_min + 0.05
     edges = np.linspace(x_min, x_max, max(8, int(bins)) + 1)
 
-    mean_margin = float(np.mean(perturbative_vals))
+    mean_margin = float(np.mean(perturbative_vals)) if perturbative_vals.size > 0 else np.nan
 
     fig, ax1 = plt.subplots(figsize=(10.5, 6.2))
     ax2 = ax1.twinx()
@@ -474,14 +474,15 @@ def plot_perturbative_calibration_overlay(
             )
         )
 
-    ax1.axvline(
-        mean_margin,
-        color=CASE_COLORS["perturbative"],
-        linestyle="--",
-        linewidth=1.8,
-        label=f"Perturbative mean = {mean_margin:.3f}",
-        zorder=4.0,
-    )
+    if np.isfinite(mean_margin):
+        ax1.axvline(
+            mean_margin,
+            color=CASE_COLORS["perturbative"],
+            linestyle="--",
+            linewidth=1.8,
+            label=f"Perturbative mean = {mean_margin:.3f}",
+            zorder=4.0,
+        )
 
     ax1.set_xlabel("DIHS margin threshold")
     ax1.set_ylabel("Pseudo-unknown precision", color="#1f4e79")

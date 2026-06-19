@@ -19,6 +19,7 @@ from DIHS_Correlator import (
     triple_run,
     perturbative_simple_run,
     perturbative_triple_run,
+    perturbative_triple_run_with_resolvedness,
     pseudo_unknown_run,
 )
 ```
@@ -133,6 +134,43 @@ hs_mean_dict = perturbative_triple_run(
     return_details = False, 
 )
 ```
+
+Perturbative triple run plus Top-1 pseudo-unknown resolvedness calibration:
+
+```python
+resolvedness_df = perturbative_triple_run_with_resolvedness(
+    df = my_dataframe,
+    transform_type = "scaled",
+    unknown_sample = "Caio",
+    class_column = "sample",
+    random_state = None,
+    n_iterations = 100,
+    major_cols = ['SiO2','CaO','MgO','MnO','Al2O3','FeO','TiO2','K2O','Na2O'],
+    trace_cols = ['Zr','La','Ba','Ce','Eu','Nb'],
+    major_error = 0.02,
+    trace_error = 0.10,
+    perturbation_seed = 12345,
+    compute_pairwise = True,
+    plot_everything = False,
+    write_files = False,
+    output_dir = "./Results_perturbative_triple_resolvedness",
+    plot_output_dir = None,
+    max_depth = 100,
+    exclude_columns = (),
+    save_cluster_data = False,
+    save_untransformed = False,
+    pseudo_unknown_iterations = 100, # number of Top-1 pseudo-unknown subset draws per model
+    pseudo_unknown_sample_size = None, # if None, uses the number of rows belonging to unknown_sample
+    pseudo_unknown_random_state = None,
+    target_precisions = [0.95, 0.90, 0.85, 0.80, 0.75],
+    min_runs_above_threshold = 1,
+    integration_depth = None, # if None, uses the deepest shared depth across perturbative and pseudo-unknown runs
+    verbose = True,
+    return_details = False, # set True to receive per-model perturbative, pseudo-unknown, calibrated-run and artifact bundles
+)
+```
+
+This workflow removes the real unknown class from the pseudo-unknown dataset, identifies the dominant Top-1 class for each model from the perturbative ensemble, runs pseudo-unknown positive/negative experiments only on that Top-1 class, and reports empirical resolvedness from the fraction of pseudo-unknown runs above the perturbative mean `DIHS` margin that are true positives.
 
 Pseudo-unknown calibration run (single model):
 
