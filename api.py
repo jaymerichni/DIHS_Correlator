@@ -1,4 +1,5 @@
 import os
+import warnings
 from glob import glob
 from typing import Any
 
@@ -111,7 +112,7 @@ def _run_single_model(
     runner = CorrelationRunner(
         base_output_dir=output_dir,
         save_trees=write_files,
-        save_cluster_data=write_files and save_cluster_data,
+        save_cluster_data=save_cluster_data,
         save_untransformed=save_untransformed,
     )
     exclude_set = set(exclude_columns) | {class_column}
@@ -148,14 +149,11 @@ def _run_single_model(
     if plot_everything:
         if plot_output_dir is None:
             plot_output_dir = os.path.join(output_dir, "Plots")
-        if write_files:
-            os.makedirs(plot_output_dir, exist_ok=True)
+        os.makedirs(plot_output_dir, exist_ok=True)
 
-        hs_curve_path = None
-        if write_files:
-            hs_curve_path = os.path.join(
-                plot_output_dir, f"hs_curve_{run['transform_name']}_{model}.svg"
-            )
+        hs_curve_path = os.path.join(
+            plot_output_dir, f"hs_curve_{run['transform_name']}_{model}.svg"
+        )
         plot_hs_curves(
             df=run["metrics_per_depth"],
             value_col="harmonic_score",
@@ -168,11 +166,9 @@ def _run_single_model(
         artifacts["hs_curve_path"] = hs_curve_path
 
         if compute_pairwise and runner.get_pairwise_total_matrix() is not None:
-            pairwise_plot_path = None
-            if write_files:
-                pairwise_plot_path = os.path.join(
-                    plot_output_dir, f"pairwise_total_{run['transform_name']}_{model}.svg"
-                )
+            pairwise_plot_path = os.path.join(
+                plot_output_dir, f"pairwise_total_{run['transform_name']}_{model}.svg"
+            )
             plot_pairwise_matrix(
                 matrix=runner.get_pairwise_total_matrix(),
                 title=f"Pairwise DIHS | {run['transform_name']} + {model}",
@@ -203,11 +199,67 @@ def _resolve_major_trace_columns(
     trace_cols: list[str] | None,
     class_column: str = "controlcode",
 ):
-    numeric_cols = df.select_dtypes(include="number").columns.drop(class_column, errors="ignore")
-    resolved_major = major_cols or [c for c in DEFAULT_MAJOR_COLS if c in df.columns]
-    resolved_trace = trace_cols or [c for c in DEFAULT_TRACE_COLS if c in df.columns]
-    resolved_major = [c for c in resolved_major if c in numeric_cols]
-    resolved_trace = [c for c in resolved_trace if c in numeric_cols]
+    numeric_cols = set(
+        df.select_dtypes(include="number").columns.drop(class_column, errors="ignore")
+    )
+
+    def _resolve_subset(
+        subset_name: str,
+        requested_cols: list[str] | None,
+        default_cols: list[str],
+    ) -> list[str]:
+        if requested_cols is None:
+            present_defaults = [c for c in default_cols if c in df.columns]
+            return [c for c in present_defaults if c in numeric_cols]
+
+        requested = list(requested_cols)
+        if len(requested) == 0:
+            return []
+
+        missing = [c for c in requested if c not in df.columns]
+        non_numeric = [c for c in requested if c in df.columns and c not in numeric_cols]
+        resolved = [c for c in requested if c in numeric_cols]
+
+        if not resolved:
+            details = []
+            if missing:
+                details.append(f"missing columns: {missing}")
+            if non_numeric:
+                details.append(f"non-numeric columns: {non_numeric}")
+            detail_text = " ".join(details) if details else "No matching numeric columns were found."
+            raise ValueError(
+                f"No valid {subset_name} columns were resolved from the explicit list. {detail_text}"
+            )
+
+        if missing or non_numeric:
+            details = []
+            if missing:
+                details.append(f"missing columns: {missing}")
+            if non_numeric:
+                details.append(f"non-numeric columns: {non_numeric}")
+            warnings.warn(
+                f"Ignoring unresolved {subset_name} columns. Using {resolved}. "
+                + " ".join(details),
+                stacklevel=3,
+            )
+
+        return resolved
+
+    resolved_major = _resolve_subset("major", major_cols, DEFAULT_MAJOR_COLS)
+    resolved_trace = _resolve_subset("trace", trace_cols, DEFAULT_TRACE_COLS)
+
+    if (
+        (major_cols is None or trace_cols is None)
+        and not resolved_major
+        and not resolved_trace
+    ):
+        warnings.warn(
+            "No perturbation columns were resolved. "
+            "The perturbative run will proceed without feature perturbations. "
+            "Pass major_cols and/or trace_cols explicitly if your dataset uses different column names.",
+            stacklevel=3,
+        )
+
     return resolved_major, resolved_trace
 
 
@@ -1130,20 +1182,11 @@ def perturbative_simple_run(
         _log(verbose, "Generating ensemble summary plots...")
         if plot_output_dir is None:
             plot_output_dir = os.path.join(output_dir, "Plots")
-        hs_curve_path = (
-            os.path.join(plot_output_dir, f"mean_hs_curve_{model_type}.svg")
-            if write_files
-            else None
-        )
-        top1_plot_path = (
-            os.path.join(plot_output_dir, f"top1_fraction_{model_type}.svg")
-            if write_files
-            else None
-        )
-        pairwise_plot_path = (
-            os.path.join(plot_output_dir, f"pairwise_total_mean_{model_type}.svg")
-            if write_files
-            else None
+        os.makedirs(plot_output_dir, exist_ok=True)
+        hs_curve_path = os.path.join(plot_output_dir, f"mean_hs_curve_{model_type}.svg")
+        top1_plot_path = os.path.join(plot_output_dir, f"top1_fraction_{model_type}.svg")
+        pairwise_plot_path = os.path.join(
+            plot_output_dir, f"pairwise_total_mean_{model_type}.svg"
         )
 
         if not hs_summary.empty:

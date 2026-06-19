@@ -748,20 +748,15 @@ def run_pseudo_unknown_experiments(
     if plot_everything:
         if plot_output_dir is None:
             plot_output_dir = os.path.join(output_dir, "Plots")
-        margin_plot_path = (
-            os.path.join(plot_output_dir, "pseudo_unknown_margin_comparison.svg")
-            if write_files
-            else None
+        os.makedirs(plot_output_dir, exist_ok=True)
+        margin_plot_path = os.path.join(
+            plot_output_dir, "pseudo_unknown_margin_comparison.svg"
         )
-        threshold_plot_path = (
-            os.path.join(plot_output_dir, "pseudo_unknown_threshold_diagnostics.svg")
-            if write_files
-            else None
+        threshold_plot_path = os.path.join(
+            plot_output_dir, "pseudo_unknown_threshold_diagnostics.svg"
         )
-        histogram_plot_path = (
-            os.path.join(plot_output_dir, "pseudo_unknown_margin_histogram.svg")
-            if write_files
-            else None
+        histogram_plot_path = os.path.join(
+            plot_output_dir, "pseudo_unknown_margin_histogram.svg"
         )
 
         plot_margin_comparison(

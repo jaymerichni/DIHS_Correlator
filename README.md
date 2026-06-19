@@ -34,13 +34,13 @@ hs_dict = simple_run(
     unknown_sample="Caio", # unknown sample to correlate
     random_state=19062026, # fixes an initialization seed for the non-deterministic "kmeans" and "gaussian" models; does nothing if "agglomerative" is chosen; if None, random initialization for "kmeans" and "gaussian" is set
     compute_pairwise=True, # (switch) computes DIHS between all featured classes, not only the unknown one; unknown class still controls max depth if no max_depth is set; increases computation time if it is not needed
-    plot_everything=False, # (switch) generate and save all available plots
-    write_files=False, # (switch) save metrics and cluster data
+    plot_everything=False, # (switch) save all available plots to plot_output_dir
+    write_files=False, # (switch) save metrics/tree CSV outputs
     output_dir = "./Results", # file output directory
     plot_output_dir = "./Plots" # plot output directory
     max_depth=100, # maximum tree depth; otherwise controled by stopping conditions (Aymerich et al., 2026)
     exclude_columns=(), # columns/features to be excluded from consideration
-    save_cluster_data = False, # (switch) create a folder for each generated partition with its corresponding geochemical data as a csv; if save_untransformed=False, the data saved is transformed
+    save_cluster_data = False, # (switch) save per-partition cluster datasets to output_dir/ClusterData; can be used independently of write_files
     save_untransformed = False, # (switch) does nothing if save_cluster_data = False; if True, cluster data is saved untransformed
     verbose = True, # (switch) if True, progress comments are printed on terminal
     return_details = False, # (switch) receive DIHS totals, pairwise outputs, and artifact paths on final dictionary (hs_dict)
@@ -81,8 +81,8 @@ hs_mean_df = perturbative_simple_run(
     class_column = "sample",
     random_state = None,
     n_iterations = 100, # number of newly perturbed versions of the original dataset to generate for uncertainty propagation
-    major_cols =['SiO2','CaO','MgO','MnO','Al2O3','FeO','TiO2','K2O','Na2O'], # list of features representing major elements that will be perturbed within major_error uncertainty
-    trace_cols = ['Zr','La','Ba','Ce','Eu','Nb'], # list of features representing trace elements that will be perturbed within trace_error uncertainty
+    major_cols =['SiO2','CaO','MgO','MnO','Al2O3','FeO','TiO2','K2O','Na2O'], # explicit list of major-element columns to perturb; pass these explicitly if your dataset does not use the package defaults
+    trace_cols = ['Zr','La','Ba','Ce','Eu','Nb'], # explicit list of trace-element columns to perturb; explicit lists raise if none of the requested columns resolve
     major_error = 0.02, # uncertainty associated with major_cols; perturbations for this feature subset will be within +- this float
     trace_error = 0.10, # uncertainty associated with trace_cols; perturbations for this feature subset will be within +- this float
     perturbation_seed = 26122001, # fixes a seed for perturbation; otherwise random
@@ -102,6 +102,8 @@ hs_mean_df = perturbative_simple_run(
 ---------------------------------------------------------------
 NOTE: For perturbative runs, `dihs_summary` is computed from per-iteration HS truncated to the ensemble maximum common depth (`common_depth_level`), then integrated on that shared depth.
 ---------------------------------------------------------------
+
+If `major_cols` and `trace_cols` are left as `None`, the perturbative routines auto-detect normalized defaults such as `SIO2N`, `TIO2N`, `AL2O3N`, `FE2O3TN`, `CAON`, `MGON`, `MNON`, `NA2ON`, `K2ON`, `P2O5N`, `NbN`, `ZrN`, `LaN`, `CeN`, `SrN`, `BaN`, and `RbN`. If no defaults resolve, the run proceeds without perturbation and emits a warning; if you pass explicit lists and none of their columns resolve, the run raises an error.
 
 Perturbative triple run (agglomerative + kmeans + gaussian with uncertainty propagation):
 
@@ -149,8 +151,8 @@ pseudo_dict = pseudo_unknown_run(
     target_precision = 0.95,
     reported_precisions = None,
     min_runs_above_threshold = 1,
-    plot_everything = True,
-    write_files = False,
+    plot_everything = True, # (switch) save pseudo-unknown plots to plot_output_dir
+    write_files = False, # (switch) save pseudo-unknown CSV outputs
     output_dir = "./Results_pseudo_unknown",
     plot_output_dir = None,
     verbose = True,
@@ -166,4 +168,3 @@ Set `return_details=True` to get the full calibration bundle, including:
 - `thresholds_by_target_precision`
 - `resolvedness_threshold`
 - optional artifact paths for plots and CSV outputs
-

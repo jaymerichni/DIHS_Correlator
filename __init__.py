@@ -21,5 +21,4 @@ __all__ = [
     "plot_pseudo_unknown_margin_histogram_from_outputs",
     "plot_pseudo_unknown_margin_from_outputs",
     "pseudo_unknown_run",
-    "method_comparison_run",
 ]
