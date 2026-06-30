@@ -28,14 +28,14 @@ def plot_pairwise_matrix(
     white_frac: float = 0.0,
     fig_scale: float = 0.75,
     min_figsize=(12, 10),
-    max_figsize=(26, 22),
+    max_figsize=None,
     title_fs: int = 26,
     axis_label_fs: int = 30,
     tick_fs: int = 28,
     annot_fs: int = 24,
     cbar_label_fs: int = 28,
     cbar_tick_fs: int = 28,
-    plot_upper_triangle_only: bool = True,
+    plot_upper_triangle_only: bool = False,
     cbar_label: str = "Pairwise DIHS",
     annot_fmt: str = "{val:.2f}",
     annot_white_threshold: float = 0.75,
@@ -72,8 +72,24 @@ def plot_pairwise_matrix(
     else:
         data_masked = data
 
-    w = max(min_figsize[0], min(max_figsize[0], fig_scale * n + 6))
-    h = max(min_figsize[1], min(max_figsize[1], fig_scale * n + 5))
+    longest_label = max((len(label) for label in labels), default=1)
+    cell_size = max(
+        fig_scale,
+        0.62 if annotate else 0.48,
+        tick_fs / 52.0,
+        annot_fs / 42.0 if annotate else 0.0,
+    )
+    width_from_cells = cell_size * n
+    height_from_cells = cell_size * n
+    width_from_labels = 7.0 + max(0.0, longest_label - 4) * 0.20
+    height_from_labels = 6.0 + max(0.0, longest_label - 4) * 0.12
+
+    w = max(min_figsize[0], width_from_cells + width_from_labels)
+    h = max(min_figsize[1], height_from_cells + height_from_labels)
+
+    if max_figsize is not None:
+        w = min(max_figsize[0], w)
+        h = min(max_figsize[1], h)
 
     cmap = _white_to_cmap(base_cmap_name=base_cmap, white_frac=white_frac).copy()
     cmap.set_bad(color=(1, 1, 1, 0))
