@@ -3,12 +3,20 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib
 from matplotlib import cm
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 
+def _get_cmap(base_cmap_name: str, n: int):
+    if hasattr(matplotlib, "colormaps"):
+        cmap = matplotlib.colormaps.get_cmap(base_cmap_name)
+        return cmap.resampled(n)
+    return cm.get_cmap(base_cmap_name, n)
+
+
 def _white_to_cmap(base_cmap_name: str = "YlOrBr", white_frac: float = 0.18, n: int = 256):
-    base = cm.get_cmap(base_cmap_name, n)
+    base = _get_cmap(base_cmap_name, n)
     colors = base(np.linspace(0, 1, n))
     k = int(np.clip(white_frac, 0.0, 0.95) * n)
     colors[:k, :] = np.array([1, 1, 1, 1])
