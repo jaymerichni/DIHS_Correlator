@@ -72,7 +72,7 @@ def perturbative_triple_run_with_resolvedness_workflow(
     integration_depth: int | None = None,
     verbose: bool = True,
     return_details: bool = False,
-    # Dependency injection hooks (useful for tests)
+    # Optional function overrides for dependency injection.
     perturbative_simple_run_fn=None,
     pseudo_unknown_run_fn=None,
 ) -> dict[str, Any] | pd.DataFrame:
@@ -147,9 +147,9 @@ def perturbative_triple_run_with_resolvedness_workflow(
     return_details : bool, default False
         If True, return full details dict; if False, return summary dataframe only
     perturbative_simple_run_fn : callable | None
-        Injected perturbative workflow function (for testing)
+        Optional override for perturbative workflow execution.
     pseudo_unknown_run_fn : callable | None
-        Injected pseudo-unknown workflow function (for testing)
+        Optional override for pseudo-unknown workflow execution.
 
     Returns
     -------

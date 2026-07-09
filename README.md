@@ -20,7 +20,6 @@ The package is designed for compositional geochemical datasets where each row re
 - `workflows/`: orchestration logic for complete analyses.
 - `viz/`: plotting utilities (HS curves, pairwise matrices, resolvedness plots).
 - `io/`: path and writer/loading helpers.
-- `tests/`: regression tests for API delegation and workflow analysis behavior.
 
 ## Analysis Modes
 
@@ -107,14 +106,6 @@ Typical output directories include:
 - Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
 - Perturbative summaries are computed at the maximum common depth across iterations.
 - Resolvedness calibration supports target precision levels and threshold reporting.
-
-## Reproducibility and Validation
-
-The repository includes unit/regression tests under `tests/`. A standard test invocation is:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
 
 ## Citation
 
