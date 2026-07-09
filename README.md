@@ -1,11 +1,11 @@
 ﻿# DIHS Correlator
 
-Python implementation and API of the DIHS-based tephra correlation framework presented in Aymerich et al.'s "A New Machine Learning Approach for Interpretable Tephra-Source Correlation: Introducing the Depth-Integrated Harmonic Score (DIHS)" (2026).
+Python implementation and API of the DIHS-based tephra correlation framework presented in J. Aymerich et al.'s "A New Machine Learning Approach for Interpretable Tephra-Source Correlation: Introducing the Depth-Integrated Harmonic Score (DIHS)" (2026).
 
 ## Layout
 
 - `core/`: transformations, recursive clustering, DIHS metrics
-- `workflows/`: single-run, perturbative uncertainty propagation and pseudo-unknown run
+- `workflows/`: single-run and pseudo-unknown run
 - `viz/`: HS-depth curves, pairwise plots, summary plots
 - `io/`: loading and output path/writer helpers
 
