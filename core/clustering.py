@@ -33,15 +33,10 @@ def recursive_cluster(
     df,
     features,
     model_type,
-    base_output_dir,
-    save_cluster_data=False,
-    save_untransformed=False,
     depth=0,
     max_depth=100,
     unknown_class=None,
     path="",
-    transform_name="",
-    original_data=None,
     random_state=None,
     class_column="controlcode",
 ):
@@ -80,28 +75,19 @@ def recursive_cluster(
         # Store clustering outcome in Dataframe as the value of a column named after depth
         df[col] = labels
 
-        # For each cluster, store the corresponding data and metadata in the cluster_data_store dictionary. Optionally save the cluster data to CSV files.
+        # For each cluster, store metadata for downstream workflow-level persistence.
         for label in np.unique(labels):
             cluster_data = df[df[col] == label].copy()
             current_path = f"{path}_{label}" if path else f"{label}"
             cluster_name = f"{unknown_class}_path{current_path}"
-            cluster_dir = f"{base_output_dir}/ClusterData/{transform_name}_{model_type}"
-            cluster_file = f"{cluster_dir}/{cluster_name}.csv"
             cluster_data_store[cluster_name] = {
                 "unknown_class": unknown_class,
                 "path": current_path,
                 "depth": depth,
                 "label": int(label),
-                "data_path": cluster_file,
+                "indices": cluster_data.index.tolist(),
+                "data_path": None,
             }
-            if save_cluster_data:
-                os.makedirs(cluster_dir, exist_ok=True)
-                to_write = (
-                    original_data.loc[cluster_data.index]
-                    if (save_untransformed and original_data is not None)
-                    else cluster_data
-                )
-                to_write.to_csv(cluster_file, index=False)
 
     except Exception as e:
         print(f"Clustering failed at depth {depth} with error: {e}")
@@ -127,15 +113,10 @@ def recursive_cluster(
                 sub_df.copy(),
                 features,
                 model_type,
-                base_output_dir=base_output_dir,
-                save_cluster_data=save_cluster_data,
-                save_untransformed=save_untransformed,
                 depth=depth + 1,
                 max_depth=max_depth,
                 unknown_class=unknown_class,
                 path=current_path,
-                transform_name=transform_name,
-                original_data=original_data,
                 random_state=random_state,
                 class_column=class_column,
             )

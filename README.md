@@ -1,17 +1,50 @@
 ﻿# DIHS Correlator
 
-Python implementation and API of the DIHS-based tephra correlation framework presented in J. Aymerich et al.'s "A New Machine Learning Approach for Interpretable Tephra-Source Correlation: Introducing the Depth-Integrated Harmonic Score (DIHS)" (2026).
+DIHS Correlator is a Python research package for interpretable tephra-source correlation using the Depth-Integrated Harmonic Score (DIHS) framework.
 
-## Layout
+The repository implements:
+- recursive clustering-based correlation of unknown samples against candidate source classes,
+- DIHS computation across depth levels,
+- perturbative uncertainty propagation,
+- pseudo-unknown resolvedness calibration,
+- post-hoc reporting and visualization from saved outputs.
 
-- `core/`: transformations, recursive clustering, DIHS metrics
-- `workflows/`: single-run and pseudo-unknown run
-- `viz/`: HS-depth curves, pairwise plots, summary plots
-- `io/`: loading and output path/writer helpers
+## Scientific Scope
+
+The package is designed for compositional geochemical datasets where each row represents a sample and one column encodes class identity (for example, volcanic source or stratigraphic unit). The framework estimates class affinity by integrating harmonic-score behavior across recursive partition depth.
+
+## Repository Structure
+
+- `api.py`: public, user-facing entry points.
+- `core/`: fundamental algorithms (transformations, recursive clustering, DIHS metrics).
+- `workflows/`: orchestration logic for complete analyses.
+- `viz/`: plotting utilities (HS curves, pairwise matrices, resolvedness plots).
+- `io/`: path and writer/loading helpers.
+- `tests/`: regression tests for API delegation and workflow analysis behavior.
+
+## Analysis Modes
+
+1. **Single run (`simple_run`)**
+- One model (`agglomerative`, `kmeans`, or `gaussian`) on one dataset.
+- Returns depth-resolved HS outputs and integrated DIHS outputs.
+
+2. **Triple run (`triple_run`)**
+- Executes all three models under a shared configuration.
+- Returns combined outputs plus per-model artifacts when requested.
+
+3. **Perturbative single/triple (`perturbative_simple_run`, `perturbative_triple_run`)**
+- Propagates measurement uncertainty via repeated perturbation.
+- Produces ensemble summaries, Top-1 frequencies, and margin statistics.
+
+4. **Pseudo-unknown calibration (`pseudo_unknown_run`)**
+- Performs controlled positive/negative pseudo-unknown experiments.
+- Estimates threshold-dependent resolvedness behavior.
+
+5. **Integrated resolvedness workflow (`perturbative_triple_run_with_resolvedness`)**
+- Combines perturbative triple analysis with Top-1 pseudo-unknown validation.
+- Reports empirical resolvedness by model at a shared integration depth.
 
 ## Public API
-
-Import from package root:
 
 ```python
 from DIHS_Correlator import (
@@ -21,190 +54,68 @@ from DIHS_Correlator import (
     perturbative_triple_run,
     perturbative_triple_run_with_resolvedness,
     pseudo_unknown_run,
+    plot_pseudo_unknown_margin_from_outputs,
+    plot_pseudo_unknown_margin_histogram_from_outputs,
+    calibrate_perturbative_resolvedness_from_outputs,
 )
 ```
 
-Simple run (single model without uncertainty propagation):
+## Minimal Usage Example
 
 ```python
-hs_dict = simple_run(
-    df=my_dataframe, # table with geochemical data
-    model_type="kmeans", # clustering model for recursive binary partition of the dataset (choose from "kmeans", "gaussian" or "agglomerative")
-    transform_type="clr", # CoDa transformation of the data (choose from none, "scaled", "clr" or "ilr")
-    class_column="volcano", # column that encodes classes
-    unknown_sample="Caio", # unknown sample to correlate
-    random_state=19062026, # fixes an initialization seed for the non-deterministic "kmeans" and "gaussian" models; does nothing if "agglomerative" is chosen; if None, random initialization for "kmeans" and "gaussian" is set
-    compute_pairwise=True, # (switch) computes DIHS between all featured classes, not only the unknown one; unknown class still controls max depth if no max_depth is set; increases computation time if it is not needed
-    plot_everything=False, # (switch) save all available plots to plot_output_dir
-    write_files=False, # (switch) save metrics/tree CSV outputs
-    output_dir = "./Results", # file output directory
-    plot_output_dir = "./Plots" # plot output directory
-    max_depth=100, # maximum tree depth; otherwise controled by stopping conditions (Aymerich et al., 2026)
-    exclude_columns=(), # columns/features to be excluded from consideration
-    save_cluster_data = False, # (switch) save per-partition cluster datasets to output_dir/ClusterData; can be used independently of write_files
-    save_untransformed = False, # (switch) does nothing if save_cluster_data = False; if True, cluster data is saved untransformed
-    verbose = True, # (switch) if True, progress comments are printed on terminal
-    return_details = False, # (switch) receive DIHS totals, pairwise outputs, and artifact paths on final dictionary (hs_dict)
+import pandas as pd
+from DIHS_Correlator import simple_run
+
+df = pd.read_csv("geochemistry.csv")
+
+hs_per_depth = simple_run(
+    df=df,
+    model_type="kmeans",
+    transform_type="clr",
+    class_column="controlcode",
+    unknown_sample="Unknown_A",
+    random_state=42,
+    compute_pairwise=True,
+    write_files=False,
+    plot_everything=False,
 )
 ```
 
-Triple run (agglomerative + kmeans + gaussian, without uncertainty propagation):
+## Input Expectations
 
-```python
-hs_all_models = triple_run(
-    df = my_dataframe,
-    transform_type = "clr",
-    unknown_sample = "Caio",
-    class_column = "volcano",
-    random_state = None,
-    compute_pairwise = True,
-    plot_everything = False,
-    write_files = False,
-    output_dir = "./Results_triple",
-    plot_output_dir = None,
-    max_depth = 100,
-    exclude_columns = (),
-    save_cluster_data = False,
-    save_untransformed = False,
-    verbose = True,
-    return_details = False,
-)
+- Input object: `pandas.DataFrame`.
+- Class/label column: configurable (default `controlcode`).
+- Feature columns: numeric columns not excluded by `exclude_columns`.
+- Transformation options: `none`, `ilr`, `clr`, `scaled`.
+
+For perturbative workflows, major and trace perturbation columns can be passed explicitly. If omitted, default normalized geochemical column names are resolved when present.
+
+## Output Conventions
+
+Depending on function and flags:
+- in-memory `DataFrame` outputs (default),
+- optional detailed dictionaries (`return_details=True`),
+- optional CSV/plot artifacts (`write_files=True`, `plot_everything=True`).
+
+Typical output directories include:
+- `Results*` folders for metrics and trees,
+- `Plots` folders for SVG figures,
+- model-specific subfolders for triple workflows.
+
+## Methodological Notes
+
+- Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
+- Perturbative summaries are computed at the maximum common depth across iterations.
+- Resolvedness calibration supports target precision levels and threshold reporting.
+
+## Reproducibility and Validation
+
+The repository includes unit/regression tests under `tests/`. A standard test invocation is:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Any API workflow that can generate pairwise matrix plots also accepts `pairwise_plot_order=[...]`. When this is provided, the plot rows and columns follow that explicit order regardless of `unknown_sample`; any classes omitted from the list are appended afterwards in their existing order. If `pairwise_plot_order=None`, the current behavior is unchanged.
+## Citation
 
-Perturbative run (single model with uncertainty propagation):
-
-```python
-hs_mean_df = perturbative_simple_run(
-    df = my_dataframe,
-    model_type = "agglomerative",
-    transform_type = "scaled",
-    unknown_sample = "Caio",
-    class_column = "sample",
-    random_state = None,
-    n_iterations = 100, # number of newly perturbed versions of the original dataset to generate for uncertainty propagation
-    major_cols =['SiO2','CaO','MgO','MnO','Al2O3','FeO','TiO2','K2O','Na2O'], # explicit list of major-element columns to perturb; pass these explicitly if your dataset does not use the package defaults
-    trace_cols = ['Zr','La','Ba','Ce','Eu','Nb'], # explicit list of trace-element columns to perturb; explicit lists raise if none of the requested columns resolve
-    major_error = 0.02, # uncertainty associated with major_cols; perturbations for this feature subset will be within +- this float
-    trace_error = 0.10, # uncertainty associated with trace_cols; perturbations for this feature subset will be within +- this float
-    perturbation_seed = 26122001, # fixes a seed for perturbation; otherwise random
-    compute_pairwise = True, # (switch) computes DIHS and ensemble DIHS average between all featured classes, not only the unknown one; unknown class still controls max depth if no max_depth is set; increases computation time if it is not needed
-    plot_everything = False,
-    write_files = False,
-    output_dir = "./Results_perturbative",
-    plot_output_dir = None,
-    max_depth = 100,
-    exclude_columns = (),
-    save_cluster_data = False,
-    save_untransformed = False,
-    verbose = True,
-    return_details = False, # (switch) receive HS mean per depth, individual HS iterations, DIHS summary, individual DIHS iterations, Top-1 class frequency, DIHS margin summary, DIHS margin per iteration and optional pairwise mean/std matrices
-)
-```
----------------------------------------------------------------
-NOTE: For perturbative runs, `dihs_summary` is computed from per-iteration HS truncated to the ensemble maximum common depth (`common_depth_level`), then integrated on that shared depth.
----------------------------------------------------------------
-
-If `major_cols` and `trace_cols` are left as `None`, the perturbative routines auto-detect normalized defaults such as `SIO2N`, `TIO2N`, `AL2O3N`, `FE2O3TN`, `CAON`, `MGON`, `MNON`, `NA2ON`, `K2ON`, `P2O5N`, `NbN`, `ZrN`, `LaN`, `CeN`, `SrN`, `BaN`, and `RbN`. If no defaults resolve, the run proceeds without perturbation and emits a warning; if you pass explicit lists and none of their columns resolve, the run raises an error.
-
-Perturbative triple run (agglomerative + kmeans + gaussian with uncertainty propagation):
-
-```python
-hs_mean_dict = perturbative_triple_run(
-    df = my_dataframe,
-    transform_type = "scaled",
-    unknown_sample = "Caio",
-    class_column = "sample",
-    random_state = None,
-    n_iterations = 100,
-    major_cols =['SiO2','CaO','MgO','MnO','Al2O3','FeO','TiO2','K2O','Na2O'],
-    trace_cols = ['Zr','La','Ba','Ce','Eu','Nb'], 
-    major_error = 0.02,
-    trace_error = 0.10, 
-    perturbation_seed = 12345, 
-    compute_pairwise = True, 
-    plot_everything = False,
-    write_files = False,
-    output_dir = "./Results_perturbative",
-    plot_output_dir = None,
-    max_depth = 100,
-    exclude_columns = (),
-    save_cluster_data = False,
-    save_untransformed = False,
-    verbose = True,
-    return_details = False, 
-)
-```
-
-Perturbative triple run plus Top-1 pseudo-unknown resolvedness calibration:
-
-```python
-resolvedness_df = perturbative_triple_run_with_resolvedness(
-    df = my_dataframe,
-    transform_type = "scaled",
-    unknown_sample = "Caio",
-    class_column = "sample",
-    random_state = None,
-    n_iterations = 100,
-    major_cols = ['SiO2','CaO','MgO','MnO','Al2O3','FeO','TiO2','K2O','Na2O'],
-    trace_cols = ['Zr','La','Ba','Ce','Eu','Nb'],
-    major_error = 0.02,
-    trace_error = 0.10,
-    perturbation_seed = 12345,
-    compute_pairwise = True,
-    plot_everything = False,
-    write_files = False,
-    output_dir = "./Results_perturbative_triple_resolvedness",
-    plot_output_dir = None,
-    max_depth = 100,
-    exclude_columns = (),
-    save_cluster_data = False,
-    save_untransformed = False,
-    pseudo_unknown_iterations = 100, # number of Top-1 pseudo-unknown subset draws per model
-    pseudo_unknown_sample_size = None, # if None, uses the number of rows belonging to unknown_sample
-    pseudo_unknown_random_state = None,
-    target_precisions = [0.95, 0.90, 0.85, 0.80, 0.75],
-    min_runs_above_threshold = 1,
-    integration_depth = None, # if None, uses the deepest shared depth across perturbative and pseudo-unknown runs
-    verbose = True,
-    return_details = False, # set True to receive per-model perturbative, pseudo-unknown, calibrated-run and artifact bundles
-)
-```
-
-This workflow removes the real unknown class from the pseudo-unknown dataset, identifies the dominant Top-1 class for each model from the perturbative ensemble, runs pseudo-unknown positive/negative experiments only on that Top-1 class, and reports empirical resolvedness from the fraction of pseudo-unknown runs above the perturbative mean `DIHS` margin that are true positives.
-
-Pseudo-unknown calibration run (single model):
-
-```python
-pseudo_dict = pseudo_unknown_run(
-    df = my_dataframe,
-    model_type = "gaussian",
-    transform_type = "clr",
-    class_column = "unit",
-    sample_size = 5, # number of datapoints to take of each class as unknown per iteration in the pseudo-unknown framework
-    n_iterations = 10, # number of subsampling iterations for each class
-    excluded_classes = None, # classes to exclude from pseudo-unknown metrics computation; during processing they are still part of the dataset as potential-source classes and affect tree construction
-    random_state = None,
-    max_depth = 100,
-    exclude_columns=(),
-    target_precision = 0.95,
-    reported_precisions = None,
-    min_runs_above_threshold = 1,
-    plot_everything = True, # (switch) save pseudo-unknown plots to plot_output_dir
-    write_files = False, # (switch) save pseudo-unknown CSV outputs
-    output_dir = "./Results_pseudo_unknown",
-    plot_output_dir = None,
-    verbose = True,
-    return_details = False,
-)
-```
-
-Set `return_details=True` to get the full calibration bundle, including:
-
-- `run_results`
-- `summary_by_class`, `summary_by_case`
-- `threshold_curve`, `threshold_summary`
-- `thresholds_by_target_precision`
-- `resolvedness_threshold`
-- optional artifact paths for plots and CSV outputs
+When using this software in scientific work, cite the corresponding DIHS methodology publication and include the software version/commit used for analysis.

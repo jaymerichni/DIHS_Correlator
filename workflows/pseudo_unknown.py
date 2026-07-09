@@ -11,20 +11,10 @@ from DIHS_Correlator.viz.pseudo_unknown import (
     plot_threshold_diagnostics,
 )
 from DIHS_Correlator.workflows.single_run import CorrelationRunner
+from DIHS_Correlator.workflows.utils import _normalize_transform_type, _class_key
 
 
 TRANSFORM_NAME_TO_ID = {v: k for k, v in BASE_TRANSFORMATIONS.items()}
-
-
-def _normalize_transform_type(transform_type: str) -> int:
-    if not isinstance(transform_type, str):
-        raise ValueError(
-            "transform_type must be a string name: 'none', 'ilr', 'clr', or 'scaled'."
-        )
-    key = str(transform_type).strip().lower()
-    if key not in TRANSFORM_NAME_TO_ID:
-        raise ValueError(f"Unsupported transform_type='{transform_type}'.")
-    return TRANSFORM_NAME_TO_ID[key]
 
 
 def _class_sort_key(value: Any):
@@ -32,16 +22,6 @@ def _class_sort_key(value: Any):
         return (0, float(value))
     except Exception:
         return (1, str(value))
-
-
-def _class_key(value: Any) -> str:
-    if pd.isna(value):
-        return "<NA>"
-    if isinstance(value, (np.integer, int)):
-        return str(int(value))
-    if isinstance(value, (np.floating, float)) and float(value).is_integer():
-        return str(int(value))
-    return str(value)
 
 
 def _make_pseudo_unknown_label(
