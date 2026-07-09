@@ -15,6 +15,41 @@ def _white_to_cmap(base_cmap_name: str = "YlOrBr", white_frac: float = 0.18, n: 
     return LinearSegmentedColormap.from_list(f"white_{base_cmap_name}", colors)
 
 
+def _resolve_plot_order(
+    matrix,
+    unknown_class,
+    sort_by_unknown: bool,
+    class_order=None,
+):
+    base_order = list(matrix.index)
+    if class_order is not None:
+        requested = [str(label) for label in class_order]
+        duplicates = []
+        seen = set()
+        for label in requested:
+            if label in seen and label not in duplicates:
+                duplicates.append(label)
+            seen.add(label)
+        if duplicates:
+            raise ValueError(
+                f"class_order contains duplicate labels: {duplicates}"
+            )
+
+        missing = [label for label in requested if label not in base_order]
+        if missing:
+            raise ValueError(
+                f"class_order contains labels that are not present in the matrix: {missing}"
+            )
+
+        remaining = [label for label in base_order if label not in seen]
+        return requested + remaining
+
+    unk = str(unknown_class)
+    if sort_by_unknown and unk in base_order:
+        return list(matrix.loc[unk].sort_values(ascending=False).index)
+    return base_order
+
+
 def plot_pairwise_matrix(
     matrix,
     title=None,
@@ -23,6 +58,7 @@ def plot_pairwise_matrix(
     vmax=1.0,
     unknown_class: int = 0,
     sort_by_unknown: bool = True,
+    class_order=None,
     annotate: bool = True,
     base_cmap: str = "YlOrBr",
     white_frac: float = 0.0,
@@ -56,10 +92,12 @@ def plot_pairwise_matrix(
         columns=mat.columns,
     )
 
-    unk = str(unknown_class)
-    order = list(mat.index)
-    if sort_by_unknown and unk in mat.index:
-        order = mat.loc[unk].sort_values(ascending=False).index.tolist()
+    order = _resolve_plot_order(
+        matrix=mat,
+        unknown_class=unknown_class,
+        sort_by_unknown=sort_by_unknown,
+        class_order=class_order,
+    )
     mat = mat.reindex(index=order, columns=order)
 
     labels = list(mat.index)

@@ -71,6 +71,8 @@ hs_all_models = triple_run(
 )
 ```
 
+Any API workflow that can generate pairwise matrix plots also accepts `pairwise_plot_order=[...]`. When this is provided, the plot rows and columns follow that explicit order regardless of `unknown_sample`; any classes omitted from the list are appended afterwards in their existing order. If `pairwise_plot_order=None`, the current behavior is unchanged.
+
 Perturbative run (single model with uncertainty propagation):
 
 ```python
