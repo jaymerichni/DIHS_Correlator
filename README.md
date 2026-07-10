@@ -1,6 +1,6 @@
 ﻿# DIHS Correlator
 
-DIHS Correlator is a Python research package for interpretable tephra-source correlation using the Depth-Integrated Harmonic Score (DIHS) framework.
+DIHS Correlator is a Python research package for interpretable tephra-source correlation using the Depth-Integrated Harmonic Score (DIHS) framework (Aymerich et al., 2026).
 
 The repository implements:
 - recursive clustering-based correlation of unknown samples against candidate source classes,
