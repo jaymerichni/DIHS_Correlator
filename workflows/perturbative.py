@@ -138,6 +138,74 @@ def _aggregate_pairwise_iteration_totals(pairwise_totals: Iterable[pd.DataFrame]
     return mean_df, std_df
 
 
+def _compute_pairwise_total_matrix_at_depth(
+    pairwise_depth_matrices: dict[int, pd.DataFrame] | None,
+    integration_depth: int,
+):
+    if not pairwise_depth_matrices:
+        return None
+
+    depth = int(integration_depth)
+    if depth < 0:
+        raise ValueError("integration_depth must be >= 0.")
+
+    depth_lookup = {int(key): value for key, value in pairwise_depth_matrices.items()}
+    if depth_lookup and depth > max(depth_lookup):
+        raise ValueError(
+            f"Requested integration_depth={depth} exceeds the available pairwise depth "
+            f"{max(depth_lookup)}."
+        )
+
+    selected_matrices = []
+    all_units = []
+    for current_depth in range(depth + 1):
+        if current_depth not in depth_lookup:
+            raise ValueError(
+                f"Missing pairwise matrix for depth {current_depth} while recomputing "
+                f"the pairwise DIHS total at integration_depth={depth}."
+            )
+        matrix = depth_lookup[current_depth].copy()
+        matrix.index = matrix.index.astype(str)
+        matrix.columns = matrix.columns.astype(str)
+        all_units.extend(matrix.index.tolist())
+        all_units.extend(matrix.columns.tolist())
+        selected_matrices.append(matrix)
+
+    if not selected_matrices:
+        return None
+
+    all_units = sorted(set(all_units), key=lambda s: (0, s) if s.isdigit() else (1, s))
+    stack = []
+    for matrix in selected_matrices:
+        aligned = matrix.reindex(index=all_units, columns=all_units).fillna(0.0)
+        aligned = 0.5 * (aligned + aligned.T)
+        arr = aligned.to_numpy(dtype=float, copy=True)
+        np.fill_diagonal(arr, 1.0)
+        stack.append(arr)
+
+    total_from_depth = np.stack(stack, axis=0).mean(axis=0)
+    total_matrix = pd.DataFrame(total_from_depth, index=all_units, columns=all_units)
+    total_matrix = 0.5 * (total_matrix + total_matrix.T)
+    arr = total_matrix.to_numpy(copy=True)
+    np.fill_diagonal(arr, 1.0)
+    return pd.DataFrame(arr, index=total_matrix.index, columns=total_matrix.columns)
+
+
+def _aggregate_pairwise_iteration_totals_at_depth(
+    pairwise_depth_iterations: Iterable[dict[int, pd.DataFrame] | None],
+    integration_depth: int,
+):
+    totals = []
+    for pairwise_depth_matrices in pairwise_depth_iterations:
+        total_matrix = _compute_pairwise_total_matrix_at_depth(
+            pairwise_depth_matrices=pairwise_depth_matrices,
+            integration_depth=integration_depth,
+        )
+        if total_matrix is not None:
+            totals.append(total_matrix)
+    return _aggregate_pairwise_iteration_totals(totals)
+
+
 def _plot_top1_fraction(top1_df: pd.DataFrame, output_path: str | None = None):
     if top1_df.empty:
         return
@@ -216,7 +284,7 @@ def perturbative_simple_run_workflow(
 
     hs_iters = []
     dihs_iters = []
-    pairwise_totals = []
+    pairwise_depth_iterations = []
     artifacts = {"iteration_dirs": []}
 
     for it in range(n_iterations):
@@ -267,8 +335,8 @@ def perturbative_simple_run_workflow(
         dihs_i["iteration"] = it
         dihs_iters.append(dihs_i)
 
-        if compute_pairwise and run["pairwise_total_matrix"] is not None:
-            pairwise_totals.append(run["pairwise_total_matrix"])
+        if compute_pairwise and run["pairwise_per_depth_matrices"] is not None:
+            pairwise_depth_iterations.append(run["pairwise_per_depth_matrices"])
         if verbose:
             _print_progress(it + 1, n_iterations)
 
@@ -316,7 +384,14 @@ def perturbative_simple_run_workflow(
     margin_per_iteration, margin_summary = _compute_margin_stats(
         dihs_iterations, unknown_class
     )
-    pairwise_mean, pairwise_std = _aggregate_pairwise_iteration_totals(pairwise_totals)
+    pairwise_integration_depth = common_depth_level if compute_pairwise else None
+    if compute_pairwise and pairwise_depth_iterations and pairwise_integration_depth is not None:
+        pairwise_mean, pairwise_std = _aggregate_pairwise_iteration_totals_at_depth(
+            pairwise_depth_iterations,
+            integration_depth=pairwise_integration_depth,
+        )
+    else:
+        pairwise_mean, pairwise_std = None, None
 
     if plot_everything:
         _log(verbose, "Generating ensemble summary plots...")
@@ -345,7 +420,7 @@ def perturbative_simple_run_workflow(
         if compute_pairwise and pairwise_mean is not None:
             plot_pairwise_matrix(
                 matrix=pairwise_mean,
-                title=f"Mean pairwise DIHS | {model_type}",
+                title=f"Mean pairwise DIHS | {model_type} | depth {pairwise_integration_depth}",
                 output_path=pairwise_plot_path,
                 unknown_class=unknown_class,
                 class_order=pairwise_plot_order,
@@ -366,6 +441,10 @@ def perturbative_simple_run_workflow(
         "margin_summary": margin_summary,
         "pairwise_total_mean_matrix": pairwise_mean if compute_pairwise else None,
         "pairwise_total_std_matrix": pairwise_std if compute_pairwise else None,
+        "pairwise_integration_depth": pairwise_integration_depth,
+        "pairwise_depth_matrices_per_iteration": (
+            pairwise_depth_iterations if compute_pairwise else None
+        ),
         "artifacts": artifacts,
     }
     _log(verbose, "Perturbative run completed.")

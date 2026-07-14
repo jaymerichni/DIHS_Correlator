@@ -104,7 +104,7 @@ Typical output directories include:
 ## Methodological Notes
 
 - Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
-- Perturbative summaries are computed at the maximum common depth across iterations.
+- Perturbative summaries, including ensemble pairwise DIHS matrices, are computed at the maximum common depth across iterations unless a resolvedness workflow applies a specific integration depth.
 - Resolvedness calibration supports target precision levels and threshold reporting.
 
 ## Citation

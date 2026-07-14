@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from DIHS_Correlator.viz.pairwise import plot_pairwise_matrix
 from DIHS_Correlator.viz.pseudo_unknown import (
     plot_margin_comparison,
     plot_margin_histogram,
@@ -28,7 +29,10 @@ from DIHS_Correlator.workflows.analysis import (
     _select_top1_candidate_for_calibration,
     _compute_perturbative_margins_at_depth,
 )
-from DIHS_Correlator.workflows.perturbative import perturbative_simple_run_workflow
+from DIHS_Correlator.workflows.perturbative import (
+    _aggregate_pairwise_iteration_totals_at_depth,
+    perturbative_simple_run_workflow,
+)
 from DIHS_Correlator.workflows.pseudo_unknown import run_pseudo_unknown_experiments
 from DIHS_Correlator.workflows.utils import (
     _class_key,
@@ -328,6 +332,19 @@ def perturbative_triple_run_with_resolvedness_workflow(
                     f"common depth {pseudo_common_depth} for model '{model}'."
                 )
 
+        if compute_pairwise:
+            pairwise_depth_iterations = perturbative_result.get(
+                "pairwise_depth_matrices_per_iteration"
+            )
+            if pairwise_depth_iterations:
+                pairwise_mean, pairwise_std = _aggregate_pairwise_iteration_totals_at_depth(
+                    pairwise_depth_iterations,
+                    integration_depth=chosen_depth,
+                )
+                perturbative_result["pairwise_total_mean_matrix"] = pairwise_mean
+                perturbative_result["pairwise_total_std_matrix"] = pairwise_std
+            perturbative_result["pairwise_integration_depth"] = int(chosen_depth)
+
         perturbative_margins = _compute_perturbative_margins_at_depth(
             perturbative_result["hs_iterations"],
             integration_depth=chosen_depth,
@@ -468,6 +485,27 @@ def perturbative_triple_run_with_resolvedness_workflow(
             title_suffix = (
                 f"{transform_name} + {model} | Top-1 = {top1_candidate['top1_class']}"
             )
+            if (
+                compute_pairwise
+                and perturbative_result.get("pairwise_total_mean_matrix") is not None
+            ):
+                pairwise_plot_path = perturbative_result["artifacts"].get(
+                    "pairwise_total_mean_plot_path"
+                )
+                if pairwise_plot_path is None:
+                    pairwise_plot_path = os.path.join(
+                        perturbative_plot_dir, f"pairwise_total_mean_{model}.svg"
+                    )
+                plot_pairwise_matrix(
+                    matrix=perturbative_result["pairwise_total_mean_matrix"],
+                    title=f"Mean pairwise DIHS | {model} | depth {chosen_depth}",
+                    output_path=pairwise_plot_path,
+                    unknown_class=unknown_class,
+                    class_order=pairwise_plot_order,
+                )
+                perturbative_result["artifacts"][
+                    "pairwise_total_mean_plot_path"
+                ] = pairwise_plot_path
             comparison_plot_path = os.path.join(
                 resolvedness_plot_dir, "resolvedness_margin_comparison.svg"
             )
