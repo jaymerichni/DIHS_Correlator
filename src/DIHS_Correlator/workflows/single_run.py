@@ -186,24 +186,6 @@ class CorrelationRunner:
     def get_pairwise_total_matrix(self):
         return self.last_pair_total_matrix
 
-    def get_pairwise_matrix_for_depth(self, depth_level):
-        if self.last_pair_depth_matrices is None:
-            return None
-        return self.last_pair_depth_matrices.get(int(depth_level), None)
-
-    def save_pairwise_matrix_for_depth(self, depth_level, output_dir=None):
-        matrix = self.get_pairwise_matrix_for_depth(depth_level)
-        if matrix is None:
-            return None
-        if output_dir is None:
-            transform_name = self.last_transform_name or "unknown_transform"
-            model_type = self.last_model_type or "unknown_model"
-            output_dir = pairwise_dir(self.base_output_dir, transform_name, model_type)
-        ensure_dir(output_dir)
-        fp = os.path.join(output_dir, f"pairwise_matrix_depth_{int(depth_level):03d}.csv")
-        matrix.to_csv(fp)
-        return fp
-
     def save_pairwise_matrices_all_depths(self, output_dir=None, prefix="pairwise_matrix_depth"):
         if self.last_pair_depth_matrices is None:
             return []

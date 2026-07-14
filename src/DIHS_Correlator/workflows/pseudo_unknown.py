@@ -85,45 +85,6 @@ def _extract_margin_result(
     }
 
 
-def _recompute_dihs_on_common_depth(hs_iterations: pd.DataFrame):
-    if hs_iterations.empty:
-        return pd.DataFrame(), None
-
-    max_depth_per_run = (
-        hs_iterations.groupby("run_id", as_index=False)["depth_level"].max()
-    )
-    if max_depth_per_run.empty:
-        return pd.DataFrame(), None
-
-    common_depth_level = int(max_depth_per_run["depth_level"].min())
-    depth_span = float(common_depth_level + 1)
-
-    hs_common = hs_iterations[hs_iterations["depth_level"] <= common_depth_level].copy()
-    if hs_common.empty:
-        return pd.DataFrame(), common_depth_level
-
-    keys = [
-        "run_id",
-        "source_class",
-        "source_class_key",
-        "case",
-        "iteration",
-        "sample_size",
-        "true_source_present",
-        "unknown_class",
-        "transform",
-        "model",
-        "neighbor_unit",
-    ]
-    dihs_iterations = (
-        hs_common.groupby(keys, as_index=False)
-        .agg(hs_sum=("harmonic_score", "sum"))
-        .assign(total_product=lambda x: x["hs_sum"] / depth_span)
-        .drop(columns=["hs_sum"])
-    )
-    return dihs_iterations, common_depth_level
-
-
 def _recompute_dihs_for_all_depths(hs_iterations: pd.DataFrame):
     if hs_iterations.empty:
         return pd.DataFrame(), None
@@ -167,18 +128,6 @@ def _recompute_dihs_for_all_depths(hs_iterations: pd.DataFrame):
         return pd.DataFrame(), common_depth_level
 
     return pd.concat(all_rows, ignore_index=True), common_depth_level
-
-
-def _summarize_margin_results_from_dihs(dihs_iterations: pd.DataFrame):
-    if dihs_iterations.empty:
-        return pd.DataFrame()
-
-    rows = []
-    for _, sub in dihs_iterations.groupby("run_id", as_index=False):
-        metadata = sub.iloc[0]
-        rows.append(_extract_margin_result(sub, metadata))
-
-    return pd.DataFrame(rows)
 
 
 def _summarize_margin_results_from_dihs_all_depths(
