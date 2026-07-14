@@ -263,6 +263,7 @@ def perturbative_simple_run_workflow(
     max_depth: int = 100,
     exclude_columns=(),
     pairwise_plot_order: list[Any] | None = None,
+    pairwise_integration_depth: int | None = None,
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
@@ -384,7 +385,19 @@ def perturbative_simple_run_workflow(
     margin_per_iteration, margin_summary = _compute_margin_stats(
         dihs_iterations, unknown_class
     )
-    pairwise_integration_depth = common_depth_level if compute_pairwise else None
+    pairwise_integration_depth = (
+        common_depth_level if pairwise_integration_depth is None else int(pairwise_integration_depth)
+    ) if compute_pairwise else None
+    if (
+        compute_pairwise
+        and pairwise_integration_depth is not None
+        and common_depth_level is not None
+        and pairwise_integration_depth > common_depth_level
+    ):
+        raise ValueError(
+            f"Requested pairwise_integration_depth={pairwise_integration_depth} exceeds "
+            f"the perturbative common depth {common_depth_level}."
+        )
     if compute_pairwise and pairwise_depth_iterations and pairwise_integration_depth is not None:
         pairwise_mean, pairwise_std = _aggregate_pairwise_iteration_totals_at_depth(
             pairwise_depth_iterations,

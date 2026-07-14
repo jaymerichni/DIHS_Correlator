@@ -7,6 +7,7 @@ target precision thresholds.
 """
 
 import os
+import inspect
 import warnings
 from typing import Any
 
@@ -225,31 +226,37 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 perturbative_plot_dir = os.path.join(plot_output_dir, model, "perturbative")
                 resolvedness_plot_dir = os.path.join(plot_output_dir, model, "resolvedness")
 
-        perturbative_result = perturbative_simple_run_fn(
-            df=work_df,
-            model_type=model,
-            transform_type=transform_type,
-            unknown_sample=unknown_class,
-            class_column=class_column,
-            random_state=random_state,
-            n_iterations=n_iterations,
-            major_cols=major_cols,
-            trace_cols=trace_cols,
-            major_error=major_error,
-            trace_error=trace_error,
-            perturbation_seed=perturbation_seed,
-            compute_pairwise=compute_pairwise,
-            plot_everything=plot_everything,
-            write_files=write_files,
-            output_dir=perturbative_output_dir,
-            plot_output_dir=perturbative_plot_dir,
-            max_depth=max_depth,
-            exclude_columns=exclude_columns,
-            pairwise_plot_order=pairwise_plot_order,
-            save_cluster_data=save_cluster_data,
-            save_untransformed=save_untransformed,
-            verbose=verbose,
-        )
+        perturbative_kwargs = {
+            "df": work_df,
+            "model_type": model,
+            "transform_type": transform_type,
+            "unknown_sample": unknown_class,
+            "class_column": class_column,
+            "random_state": random_state,
+            "n_iterations": n_iterations,
+            "major_cols": major_cols,
+            "trace_cols": trace_cols,
+            "major_error": major_error,
+            "trace_error": trace_error,
+            "perturbation_seed": perturbation_seed,
+            "compute_pairwise": compute_pairwise,
+            "plot_everything": plot_everything,
+            "write_files": write_files,
+            "output_dir": perturbative_output_dir,
+            "plot_output_dir": perturbative_plot_dir,
+            "max_depth": max_depth,
+            "exclude_columns": exclude_columns,
+            "pairwise_plot_order": pairwise_plot_order,
+            "save_cluster_data": save_cluster_data,
+            "save_untransformed": save_untransformed,
+            "verbose": verbose,
+        }
+        if integration_depth is not None and "pairwise_integration_depth" in inspect.signature(
+            perturbative_simple_run_fn
+        ).parameters:
+            perturbative_kwargs["pairwise_integration_depth"] = int(integration_depth)
+
+        perturbative_result = perturbative_simple_run_fn(**perturbative_kwargs)
 
         top1_candidate = _select_top1_candidate_for_calibration(
             perturbative_result,
@@ -332,11 +339,14 @@ def perturbative_triple_run_with_resolvedness_workflow(
                     f"common depth {pseudo_common_depth} for model '{model}'."
                 )
 
+        pairwise_plot_matches_chosen_depth = (
+            perturbative_result.get("pairwise_integration_depth") == int(chosen_depth)
+        )
         if compute_pairwise:
             pairwise_depth_iterations = perturbative_result.get(
                 "pairwise_depth_matrices_per_iteration"
             )
-            if pairwise_depth_iterations:
+            if pairwise_depth_iterations and not pairwise_plot_matches_chosen_depth:
                 pairwise_mean, pairwise_std = _aggregate_pairwise_iteration_totals_at_depth(
                     pairwise_depth_iterations,
                     integration_depth=chosen_depth,
@@ -488,6 +498,7 @@ def perturbative_triple_run_with_resolvedness_workflow(
             if (
                 compute_pairwise
                 and perturbative_result.get("pairwise_total_mean_matrix") is not None
+                and not pairwise_plot_matches_chosen_depth
             ):
                 pairwise_plot_path = perturbative_result["artifacts"].get(
                     "pairwise_total_mean_plot_path"
