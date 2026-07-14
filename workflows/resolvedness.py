@@ -32,6 +32,7 @@ from DIHS_Correlator.workflows.analysis import (
 )
 from DIHS_Correlator.workflows.perturbative import (
     _aggregate_pairwise_iteration_totals_at_depth,
+    _compute_perturbative_outputs_at_depth,
     perturbative_simple_run_workflow,
 )
 from DIHS_Correlator.workflows.pseudo_unknown import run_pseudo_unknown_experiments
@@ -44,6 +45,88 @@ from DIHS_Correlator.workflows.utils import (
 )
 
 SUPPORTED_MODELS = ("agglomerative", "kmeans", "gaussian")
+
+
+def _apply_perturbative_outputs_at_depth(
+    perturbative_result: dict[str, Any],
+    *,
+    unknown_class: Any,
+    integration_depth: int,
+):
+    depth_outputs = _compute_perturbative_outputs_at_depth(
+        hs_iterations=perturbative_result["hs_iterations"],
+        unknown_class=unknown_class,
+        integration_depth=integration_depth,
+    )
+    perturbative_result["dihs_iterations"] = depth_outputs["dihs_iterations"]
+    perturbative_result["dihs_summary"] = depth_outputs["dihs_summary"]
+    perturbative_result["top1_frequency"] = depth_outputs["top1_frequency"]
+    perturbative_result["margin_per_iteration"] = depth_outputs["margin_per_iteration"]
+    perturbative_result["margin_summary"] = depth_outputs["margin_summary"]
+    perturbative_result["dihs_integration_depth"] = int(integration_depth)
+    return depth_outputs
+
+
+def _run_pseudo_unknown_for_top1(
+    *,
+    pseudo_unknown_run_fn,
+    pseudo_df: pd.DataFrame,
+    top1_candidate: dict[str, Any],
+    model: str,
+    class_column: str,
+    transform_type: str,
+    pseudo_sample_size: int,
+    pseudo_unknown_iterations: int,
+    pseudo_random_state: int | None,
+    max_depth: int,
+    exclude_columns,
+    precision_targets: list[float],
+    min_runs_above_threshold: int,
+    write_files: bool,
+    output_dir: str,
+    verbose: bool,
+):
+    top1_key = top1_candidate["top1_class_key"]
+    top1_mask = _class_match_mask(pseudo_df[class_column], top1_candidate["top1_class"])
+    top1_source_count = int(top1_mask.sum())
+    if top1_source_count <= pseudo_sample_size:
+        raise ValueError(
+            f"Model '{model}' selected Top-1 class '{top1_candidate['top1_class']}', "
+            f"but it contains {top1_source_count} rows after removing the real unknown "
+            f"class and therefore cannot support pseudo-unknown sample_size={pseudo_sample_size}."
+        )
+
+    excluded_classes = [
+        value
+        for value in pseudo_df[class_column].drop_duplicates().tolist()
+        if _class_key(value) != top1_key
+    ]
+
+    _log(
+        verbose,
+        f"Model {model}: pseudo-unknown calibration on Top-1 class '{top1_candidate['top1_class']}'",
+    )
+    pseudo_unknown_result = pseudo_unknown_run_fn(
+        df=pseudo_df,
+        model_type=model,
+        transform_type=transform_type,
+        class_column=class_column,
+        sample_size=pseudo_sample_size,
+        n_iterations=pseudo_unknown_iterations,
+        excluded_classes=excluded_classes,
+        random_state=pseudo_random_state,
+        max_depth=max_depth,
+        exclude_columns=exclude_columns,
+        target_precision=max(precision_targets),
+        reported_precisions=precision_targets,
+        min_runs_above_threshold=min_runs_above_threshold,
+        plot_everything=False,
+        write_files=write_files,
+        output_dir=output_dir,
+        plot_output_dir=None,
+        verbose=verbose,
+    )
+    return pseudo_unknown_result, top1_source_count
 
 
 def perturbative_triple_run_with_resolvedness_workflow(
@@ -257,71 +340,11 @@ def perturbative_triple_run_with_resolvedness_workflow(
             perturbative_kwargs["pairwise_integration_depth"] = int(integration_depth)
 
         perturbative_result = perturbative_simple_run_fn(**perturbative_kwargs)
-
-        top1_candidate = _select_top1_candidate_for_calibration(
-            perturbative_result,
-            unknown_class=unknown_class,
-            model=model,
-        )
-        top1_key = top1_candidate["top1_class_key"]
-
+        perturbative_common_depth = perturbative_result["common_depth_level"]
         pseudo_df = work_df.loc[
             ~_class_match_mask(work_df[class_column], unknown_class)
         ].copy()
-        top1_mask = _class_match_mask(pseudo_df[class_column], top1_candidate["top1_class"])
-        top1_source_count = int(top1_mask.sum())
-        if top1_source_count <= pseudo_sample_size:
-            raise ValueError(
-                f"Model '{model}' selected Top-1 class '{top1_candidate['top1_class']}', "
-                f"but it contains {top1_source_count} rows after removing the real unknown "
-                f"class and therefore cannot support pseudo-unknown sample_size={pseudo_sample_size}."
-            )
-
-        excluded_classes = [
-            value
-            for value in pseudo_df[class_column].drop_duplicates().tolist()
-            if _class_key(value) != top1_key
-        ]
-
-        _log(
-            verbose,
-            f"Model {model}: pseudo-unknown calibration on Top-1 class '{top1_candidate['top1_class']}'",
-        )
-        pseudo_unknown_result = pseudo_unknown_run_fn(
-            df=pseudo_df,
-            model_type=model,
-            transform_type=transform_type,
-            class_column=class_column,
-            sample_size=pseudo_sample_size,
-            n_iterations=pseudo_unknown_iterations,
-            excluded_classes=excluded_classes,
-            random_state=pseudo_random_state,
-            max_depth=max_depth,
-            exclude_columns=exclude_columns,
-            target_precision=max(precision_targets),
-            reported_precisions=precision_targets,
-            min_runs_above_threshold=min_runs_above_threshold,
-            plot_everything=False,
-            write_files=write_files,
-            output_dir=pseudo_output_dir,
-            plot_output_dir=None,
-            verbose=verbose,
-        )
-
-        perturbative_common_depth = perturbative_result["common_depth_level"]
-        pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
-        if integration_depth is None:
-            available_depths = [
-                int(depth)
-                for depth in (perturbative_common_depth, pseudo_common_depth)
-                if depth is not None
-            ]
-            if not available_depths:
-                raise ValueError(
-                    f"Model '{model}' did not produce a common integration depth."
-                )
-            chosen_depth = min(available_depths)
-        else:
+        if integration_depth is not None:
             chosen_depth = int(integration_depth)
             if chosen_depth < 0:
                 raise ValueError("integration_depth must be >= 0.")
@@ -333,10 +356,117 @@ def perturbative_triple_run_with_resolvedness_workflow(
                     f"Requested integration_depth={chosen_depth} exceeds the perturbative "
                     f"common depth {perturbative_common_depth} for model '{model}'."
                 )
+
+            _apply_perturbative_outputs_at_depth(
+                perturbative_result,
+                unknown_class=unknown_class,
+                integration_depth=chosen_depth,
+            )
+            top1_candidate = _select_top1_candidate_for_calibration(
+                perturbative_result,
+                unknown_class=unknown_class,
+                model=model,
+            )
+            pseudo_unknown_result, top1_source_count = _run_pseudo_unknown_for_top1(
+                pseudo_unknown_run_fn=pseudo_unknown_run_fn,
+                pseudo_df=pseudo_df,
+                top1_candidate=top1_candidate,
+                model=model,
+                class_column=class_column,
+                transform_type=transform_type,
+                pseudo_sample_size=pseudo_sample_size,
+                pseudo_unknown_iterations=pseudo_unknown_iterations,
+                pseudo_random_state=pseudo_random_state,
+                max_depth=max_depth,
+                exclude_columns=exclude_columns,
+                precision_targets=precision_targets,
+                min_runs_above_threshold=min_runs_above_threshold,
+                write_files=write_files,
+                output_dir=pseudo_output_dir,
+                verbose=verbose,
+            )
+            pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
             if pseudo_common_depth is not None and chosen_depth > int(pseudo_common_depth):
                 raise ValueError(
                     f"Requested integration_depth={chosen_depth} exceeds the pseudo-unknown "
                     f"common depth {pseudo_common_depth} for model '{model}'."
+                )
+        else:
+            if perturbative_common_depth is None:
+                raise ValueError(
+                    f"Model '{model}' did not produce a perturbative common integration depth."
+                )
+
+            _apply_perturbative_outputs_at_depth(
+                perturbative_result,
+                unknown_class=unknown_class,
+                integration_depth=int(perturbative_common_depth),
+            )
+            top1_candidate = _select_top1_candidate_for_calibration(
+                perturbative_result,
+                unknown_class=unknown_class,
+                model=model,
+            )
+
+            chosen_depth = None
+            pseudo_unknown_result = None
+            top1_source_count = None
+            stable_alignment = False
+            for _ in range(6):
+                pseudo_unknown_result, top1_source_count = _run_pseudo_unknown_for_top1(
+                    pseudo_unknown_run_fn=pseudo_unknown_run_fn,
+                    pseudo_df=pseudo_df,
+                    top1_candidate=top1_candidate,
+                    model=model,
+                    class_column=class_column,
+                    transform_type=transform_type,
+                    pseudo_sample_size=pseudo_sample_size,
+                    pseudo_unknown_iterations=pseudo_unknown_iterations,
+                    pseudo_random_state=pseudo_random_state,
+                    max_depth=max_depth,
+                    exclude_columns=exclude_columns,
+                    precision_targets=precision_targets,
+                    min_runs_above_threshold=min_runs_above_threshold,
+                    write_files=write_files,
+                    output_dir=pseudo_output_dir,
+                    verbose=verbose,
+                )
+                pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
+                available_depths = [
+                    int(depth)
+                    for depth in (perturbative_common_depth, pseudo_common_depth)
+                    if depth is not None
+                ]
+                if not available_depths:
+                    raise ValueError(
+                        f"Model '{model}' did not produce a common integration depth."
+                    )
+                next_chosen_depth = min(available_depths)
+                _apply_perturbative_outputs_at_depth(
+                    perturbative_result,
+                    unknown_class=unknown_class,
+                    integration_depth=next_chosen_depth,
+                )
+                next_top1_candidate = _select_top1_candidate_for_calibration(
+                    perturbative_result,
+                    unknown_class=unknown_class,
+                    model=model,
+                )
+                same_depth = chosen_depth == int(next_chosen_depth)
+                same_top1 = (
+                    next_top1_candidate["top1_class_key"]
+                    == top1_candidate["top1_class_key"]
+                )
+                chosen_depth = int(next_chosen_depth)
+                top1_candidate = next_top1_candidate
+                if same_depth and same_top1:
+                    stable_alignment = True
+                    break
+
+            if not stable_alignment:
+                raise RuntimeError(
+                    f"Model '{model}' did not converge to a stable Top-1 pseudo-unknown "
+                    f"calibration depth alignment."
                 )
 
         pairwise_plot_matches_chosen_depth = (

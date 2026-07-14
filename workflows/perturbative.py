@@ -49,6 +49,60 @@ def _recompute_dihs_iterations_on_common_depth(
     return dihs_iterations, common_depth_level
 
 
+def _recompute_dihs_iterations_at_depth(
+    hs_iterations: pd.DataFrame,
+    integration_depth: int,
+):
+    if hs_iterations.empty:
+        return pd.DataFrame()
+
+    depth = int(integration_depth)
+    if depth < 0:
+        raise ValueError("integration_depth must be >= 0.")
+
+    max_depth_per_iter = (
+        hs_iterations.groupby("iteration", as_index=False)["depth_level"].max()
+    )
+    if max_depth_per_iter.empty:
+        return pd.DataFrame()
+
+    too_shallow = max_depth_per_iter[max_depth_per_iter["depth_level"] < depth]
+    if not too_shallow.empty:
+        raise ValueError(
+            f"Requested integration_depth={depth} exceeds the depth reached by "
+            f"{len(too_shallow)} perturbative iterations."
+        )
+
+    hs_cut = hs_iterations[hs_iterations["depth_level"] <= depth].copy()
+    if hs_cut.empty:
+        return pd.DataFrame()
+
+    keys = ["unknown_class", "transform", "model", "iteration", "neighbor_unit"]
+    return (
+        hs_cut.groupby(keys, as_index=False)
+        .agg(hs_sum=("harmonic_score", "sum"))
+        .assign(total_product=lambda x: x["hs_sum"] / float(depth + 1))
+        .drop(columns=["hs_sum"])
+    )
+
+
+def _summarize_dihs_iterations(dihs_iterations: pd.DataFrame):
+    dihs_group = ["unknown_class", "neighbor_unit"]
+    dihs_summary = (
+        dihs_iterations.groupby(dihs_group, as_index=False)
+        .agg(
+            total_product_mean=("total_product", "mean"),
+            total_product_std=("total_product", "std"),
+            n_iterations=("total_product", "count"),
+        )
+        if not dihs_iterations.empty
+        else pd.DataFrame()
+    )
+    if not dihs_summary.empty:
+        dihs_summary["total_product"] = dihs_summary["total_product_mean"]
+    return dihs_summary
+
+
 def _compute_top1_stats(dihs_iterations: pd.DataFrame, unknown_class: Any):
     dihs_iterations = dihs_iterations[
         dihs_iterations["neighbor_unit"].astype(str) != str(unknown_class)
@@ -109,6 +163,29 @@ def _compute_margin_stats(dihs_iterations: pd.DataFrame, unknown_class: Any):
             ]
         )
     return margin_df, summary
+
+
+def _compute_perturbative_outputs_at_depth(
+    hs_iterations: pd.DataFrame,
+    unknown_class: Any,
+    integration_depth: int,
+):
+    dihs_iterations = _recompute_dihs_iterations_at_depth(
+        hs_iterations, integration_depth=integration_depth
+    )
+    dihs_summary = _summarize_dihs_iterations(dihs_iterations)
+    top1_frequency = _compute_top1_stats(dihs_iterations, unknown_class)
+    margin_per_iteration, margin_summary = _compute_margin_stats(
+        dihs_iterations, unknown_class
+    )
+    return {
+        "integration_depth": int(integration_depth),
+        "dihs_iterations": dihs_iterations,
+        "dihs_summary": dihs_summary,
+        "top1_frequency": top1_frequency,
+        "margin_per_iteration": margin_per_iteration,
+        "margin_summary": margin_summary,
+    }
 
 
 def _aggregate_pairwise_iteration_totals(pairwise_totals: Iterable[pd.DataFrame]):
@@ -367,24 +444,25 @@ def perturbative_simple_run_workflow(
             )
         hs_summary["harmonic_score"] = hs_summary["harmonic_score_mean"]
 
-    dihs_group = ["unknown_class", "neighbor_unit"]
-    dihs_summary = (
-        dihs_iterations.groupby(dihs_group, as_index=False)
-        .agg(
-            total_product_mean=("total_product", "mean"),
-            total_product_std=("total_product", "std"),
-            n_iterations=("total_product", "count"),
+    if common_depth_level is not None:
+        depth_outputs = _compute_perturbative_outputs_at_depth(
+            hs_iterations=hs_iterations,
+            unknown_class=unknown_class,
+            integration_depth=common_depth_level,
         )
-        if not dihs_iterations.empty
-        else pd.DataFrame()
-    )
-    if not dihs_summary.empty:
-        dihs_summary["total_product"] = dihs_summary["total_product_mean"]
-
-    top1_frequency = _compute_top1_stats(dihs_iterations, unknown_class)
-    margin_per_iteration, margin_summary = _compute_margin_stats(
-        dihs_iterations, unknown_class
-    )
+        dihs_iterations = depth_outputs["dihs_iterations"]
+        dihs_summary = depth_outputs["dihs_summary"]
+        top1_frequency = depth_outputs["top1_frequency"]
+        margin_per_iteration = depth_outputs["margin_per_iteration"]
+        margin_summary = depth_outputs["margin_summary"]
+    else:
+        dihs_summary = pd.DataFrame()
+        top1_frequency = pd.DataFrame(
+            columns=["neighbor_unit", "wins", "top1_fraction", "n_iterations"]
+        )
+        margin_per_iteration, margin_summary = _compute_margin_stats(
+            dihs_iterations, unknown_class
+        )
     pairwise_integration_depth = (
         common_depth_level if pairwise_integration_depth is None else int(pairwise_integration_depth)
     ) if compute_pairwise else None
@@ -448,6 +526,7 @@ def perturbative_simple_run_workflow(
         "hs_iterations": hs_iterations,
         "dihs_summary": dihs_summary,
         "dihs_iterations": dihs_iterations,
+        "dihs_integration_depth": common_depth_level,
         "dihs_iterations_native": dihs_iterations_native,
         "top1_frequency": top1_frequency,
         "margin_per_iteration": margin_per_iteration,
