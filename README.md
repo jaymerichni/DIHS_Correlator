@@ -13,13 +13,24 @@ The repository implements:
 
 The package is designed for compositional geochemical datasets where each row represents a sample and one column encodes class identity (for example, volcanic source or stratigraphic unit). The framework estimates class affinity by integrating harmonic-score behavior across recursive partition depth.
 
+## Installation
+
+From the repository root:
+
+```bash
+python -m pip install -e .
+```
+
+After installation, `import DIHS_Correlator` works from any working directory.
+
 ## Repository Structure
 
-- `api.py`: public, user-facing entry points.
-- `core/`: fundamental algorithms (transformations, recursive clustering, DIHS metrics).
-- `workflows/`: orchestration logic for complete analyses.
-- `viz/`: plotting utilities (HS curves, pairwise matrices, resolvedness plots).
-- `io/`: path and writer/loading helpers.
+- `src/DIHS_Correlator/api.py`: public, user-facing entry points.
+- `src/DIHS_Correlator/core/`: fundamental algorithms (transformations, recursive clustering, DIHS metrics).
+- `src/DIHS_Correlator/workflows/`: orchestration logic for complete analyses.
+- `src/DIHS_Correlator/viz/`: plotting utilities (HS curves, pairwise matrices, resolvedness plots).
+- `src/DIHS_Correlator/io/`: path and writer/loading helpers.
+- `pyproject.toml`: packaging metadata for editable and build installs.
 
 ## Analysis Modes
 
