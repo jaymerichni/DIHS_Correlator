@@ -334,10 +334,12 @@ def perturbative_triple_run_with_resolvedness_workflow(
             "save_untransformed": save_untransformed,
             "verbose": verbose,
         }
-        if integration_depth is not None and "pairwise_integration_depth" in inspect.signature(
-            perturbative_simple_run_fn
-        ).parameters:
-            perturbative_kwargs["pairwise_integration_depth"] = int(integration_depth)
+        perturbative_params = inspect.signature(perturbative_simple_run_fn).parameters
+        if integration_depth is not None:
+            if "integration_depth" in perturbative_params:
+                perturbative_kwargs["integration_depth"] = int(integration_depth)
+            elif "pairwise_integration_depth" in perturbative_params:
+                perturbative_kwargs["pairwise_integration_depth"] = int(integration_depth)
 
         perturbative_result = perturbative_simple_run_fn(**perturbative_kwargs)
         perturbative_common_depth = perturbative_result["common_depth_level"]

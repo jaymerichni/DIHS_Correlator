@@ -45,6 +45,7 @@ After installation, `import DIHS_Correlator` works from any working directory.
 3. **Perturbative single/triple (`perturbative_simple_run`, `perturbative_triple_run`)**
 - Propagates measurement uncertainty via repeated perturbation.
 - Produces ensemble summaries, Top-1 frequencies, and margin statistics.
+- Accepts `integration_depth` to force both DIHS summaries and ensemble pairwise plots to use the same cumulative depth.
 
 4. **Pseudo-unknown calibration (`pseudo_unknown_run`)**
 - Performs controlled positive/negative pseudo-unknown experiments.
@@ -115,7 +116,7 @@ Typical output directories include:
 ## Methodological Notes
 
 - Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
-- Perturbative summaries, including ensemble pairwise DIHS matrices, are computed at the maximum common depth across iterations unless a resolvedness workflow applies a specific integration depth.
+- Perturbative summaries are computed at the maximum common depth across iterations by default. Passing `integration_depth` to perturbative workflows forces both reported DIHS summaries and ensemble pairwise DIHS matrices to use that same cumulative depth.
 - Resolvedness calibration supports target precision levels and threshold reporting.
 
 ## Citation

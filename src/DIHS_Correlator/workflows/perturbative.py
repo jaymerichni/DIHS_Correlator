@@ -188,6 +188,36 @@ def _compute_perturbative_outputs_at_depth(
     }
 
 
+def _resolve_perturbative_integration_depth(
+    *,
+    common_depth_level: int | None,
+    integration_depth: int | None,
+    pairwise_integration_depth: int | None,
+):
+    chosen_depth = common_depth_level if integration_depth is None else int(integration_depth)
+    if pairwise_integration_depth is not None:
+        pairwise_depth = int(pairwise_integration_depth)
+        if chosen_depth is not None and pairwise_depth != int(chosen_depth):
+            raise ValueError(
+                f"integration_depth={int(chosen_depth)} and "
+                f"pairwise_integration_depth={pairwise_depth} do not match."
+            )
+        chosen_depth = pairwise_depth
+
+    if chosen_depth is None:
+        return None
+
+    chosen_depth = int(chosen_depth)
+    if chosen_depth < 0:
+        raise ValueError("integration_depth must be >= 0.")
+    if common_depth_level is not None and chosen_depth > int(common_depth_level):
+        raise ValueError(
+            f"Requested integration_depth={chosen_depth} exceeds the perturbative "
+            f"common depth {common_depth_level}."
+        )
+    return chosen_depth
+
+
 def _aggregate_pairwise_iteration_totals(pairwise_totals: Iterable[pd.DataFrame]):
     matrices = list(pairwise_totals)
     if not matrices:
@@ -340,6 +370,7 @@ def perturbative_simple_run_workflow(
     max_depth: int = 100,
     exclude_columns=(),
     pairwise_plot_order: list[Any] | None = None,
+    integration_depth: int | None = None,
     pairwise_integration_depth: int | None = None,
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
@@ -444,11 +475,17 @@ def perturbative_simple_run_workflow(
             )
         hs_summary["harmonic_score"] = hs_summary["harmonic_score_mean"]
 
-    if common_depth_level is not None:
+    chosen_integration_depth = _resolve_perturbative_integration_depth(
+        common_depth_level=common_depth_level,
+        integration_depth=integration_depth,
+        pairwise_integration_depth=pairwise_integration_depth,
+    )
+
+    if chosen_integration_depth is not None:
         depth_outputs = _compute_perturbative_outputs_at_depth(
             hs_iterations=hs_iterations,
             unknown_class=unknown_class,
-            integration_depth=common_depth_level,
+            integration_depth=chosen_integration_depth,
         )
         dihs_iterations = depth_outputs["dihs_iterations"]
         dihs_summary = depth_outputs["dihs_summary"]
@@ -463,19 +500,8 @@ def perturbative_simple_run_workflow(
         margin_per_iteration, margin_summary = _compute_margin_stats(
             dihs_iterations, unknown_class
         )
-    pairwise_integration_depth = (
-        common_depth_level if pairwise_integration_depth is None else int(pairwise_integration_depth)
-    ) if compute_pairwise else None
-    if (
-        compute_pairwise
-        and pairwise_integration_depth is not None
-        and common_depth_level is not None
-        and pairwise_integration_depth > common_depth_level
-    ):
-        raise ValueError(
-            f"Requested pairwise_integration_depth={pairwise_integration_depth} exceeds "
-            f"the perturbative common depth {common_depth_level}."
-        )
+
+    pairwise_integration_depth = chosen_integration_depth if compute_pairwise else None
     if compute_pairwise and pairwise_depth_iterations and pairwise_integration_depth is not None:
         pairwise_mean, pairwise_std = _aggregate_pairwise_iteration_totals_at_depth(
             pairwise_depth_iterations,
@@ -526,7 +552,7 @@ def perturbative_simple_run_workflow(
         "hs_iterations": hs_iterations,
         "dihs_summary": dihs_summary,
         "dihs_iterations": dihs_iterations,
-        "dihs_integration_depth": common_depth_level,
+        "dihs_integration_depth": chosen_integration_depth,
         "dihs_iterations_native": dihs_iterations_native,
         "top1_frequency": top1_frequency,
         "margin_per_iteration": margin_per_iteration,
@@ -564,6 +590,7 @@ def perturbative_triple_run_workflow(
     max_depth: int = 100,
     exclude_columns=(),
     pairwise_plot_order: list[Any] | None = None,
+    integration_depth: int | None = None,
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
@@ -599,6 +626,7 @@ def perturbative_triple_run_workflow(
             max_depth=max_depth,
             exclude_columns=exclude_columns,
             pairwise_plot_order=pairwise_plot_order,
+            integration_depth=integration_depth,
             save_cluster_data=save_cluster_data,
             save_untransformed=save_untransformed,
             verbose=verbose,
