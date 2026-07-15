@@ -11,7 +11,7 @@ The repository implements:
 
 ## Scientific Scope
 
-The package is designed for compositional geochemical datasets where each row represents a sample and one column encodes class identity (for example, volcanic source or stratigraphic unit). The framework estimates class affinity by integrating harmonic-score behavior across recursive partition depth.
+The package is designed for compositional geochemical datasets where each row represents a sample and one column encodes class identity (for example, volcanic source or unit). The framework estimates class affinity by integrating harmonic-score behavior across recursive partition depth.
 
 ## Installation
 
@@ -118,7 +118,3 @@ Typical output directories include:
 - Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
 - Perturbative summaries are computed at the maximum common depth across iterations by default. Passing `integration_depth` to perturbative workflows forces both reported DIHS summaries and ensemble pairwise DIHS matrices to use that same cumulative depth.
 - Resolvedness calibration supports target precision levels and threshold reporting.
-
-## Citation
-
-When using this software in scientific work, cite the corresponding DIHS methodology publication and include the software version/commit used for analysis.
