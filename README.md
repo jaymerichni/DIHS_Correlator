@@ -92,6 +92,19 @@ hs_per_depth = simple_run(
 )
 ```
 
+## Graphical Interface
+
+This repository includes a Streamlit app for running the main workflows from a browser.
+
+```bash
+python -m pip install -e .
+streamlit run app.py
+```
+
+The app lets you upload a CSV file, choose one of `simple_run`, `triple_run`, or
+`perturbative_triple_run_with_resolvedness`, configure the relevant arguments,
+and inspect or download the returned tables.
+
 ## Input Expectations
 
 - Input object: `pandas.DataFrame`.

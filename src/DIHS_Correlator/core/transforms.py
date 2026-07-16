@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from skbio.stats.composition import clr, ilr
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
@@ -11,6 +10,24 @@ BASE_TRANSFORMATIONS = {
     2: "clr",
     3: "scaled",
 }
+
+
+def clr(x: np.ndarray) -> np.ndarray:
+    """Centered log-ratio transform for strictly positive compositions."""
+    logs = np.log(x)
+    return logs - logs.mean(axis=1, keepdims=True)
+
+
+def ilr(x: np.ndarray) -> np.ndarray:
+    """Isometric log-ratio transform using a sequential Helmert basis."""
+    if x.shape[1] < 2:
+        raise ValueError("ILR transformation requires at least two feature columns.")
+    logs = np.log(x)
+    coords = []
+    for j in range(1, x.shape[1]):
+        scale = np.sqrt(j / (j + 1))
+        coords.append(scale * (logs[:, :j].mean(axis=1) - logs[:, j]))
+    return np.column_stack(coords)
 
 
 def set_feature_columns(data: pd.DataFrame, exclude=()):
