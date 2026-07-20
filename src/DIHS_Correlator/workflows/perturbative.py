@@ -13,10 +13,12 @@ from DIHS_Correlator.workflows.single_run import (
 )
 
 from DIHS_Correlator.workflows.utils import (
+    _emit_progress,
     _log,
     _print_progress,
     _resolve_major_trace_columns,
     _resolve_unknown_class,
+    _scale_progress_callback,
 )
 
 
@@ -375,7 +377,14 @@ def perturbative_simple_run_workflow(
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
+    progress_callback=None,
 ):
+    _emit_progress(
+        progress_callback,
+        stage="preparing",
+        message=f"Preparing perturbative ensemble for {model_type}",
+        fraction=0.0,
+    )
     major_cols_resolved, trace_cols_resolved = _resolve_major_trace_columns(
         df, major_cols, trace_cols, class_column=class_column
     )
@@ -448,7 +457,21 @@ def perturbative_simple_run_workflow(
             pairwise_depth_iterations.append(run["pairwise_per_depth_matrices"])
         if verbose:
             _print_progress(it + 1, n_iterations)
+        _emit_progress(
+            progress_callback,
+            stage="perturbative_iterations",
+            message=f"Perturbation iteration {it + 1} of {n_iterations}",
+            current=it + 1,
+            total=n_iterations,
+            fraction=0.08 + 0.72 * ((it + 1) / float(n_iterations)),
+        )
 
+    _emit_progress(
+        progress_callback,
+        stage="aggregating",
+        message="Aggregating perturbative ensemble outputs",
+        fraction=0.84,
+    )
     hs_iterations = pd.concat(hs_iters, ignore_index=True) if hs_iters else pd.DataFrame()
     dihs_iterations_native = (
         pd.concat(dihs_iters, ignore_index=True) if dihs_iters else pd.DataFrame()
@@ -511,6 +534,12 @@ def perturbative_simple_run_workflow(
         pairwise_mean, pairwise_std = None, None
 
     if plot_everything:
+        _emit_progress(
+            progress_callback,
+            stage="plotting",
+            message="Generating perturbative summary plots",
+            fraction=0.92,
+        )
         _log(verbose, "Generating ensemble summary plots...")
         if plot_output_dir is None:
             plot_output_dir = os.path.join(output_dir, "Plots")
@@ -566,6 +595,12 @@ def perturbative_simple_run_workflow(
         "artifacts": artifacts,
     }
     _log(verbose, "Perturbative run completed.")
+    _emit_progress(
+        progress_callback,
+        stage="complete",
+        message=f"Perturbative ensemble for {model_type} complete",
+        fraction=1.0,
+    )
     return result
 
 
@@ -594,16 +629,31 @@ def perturbative_triple_run_workflow(
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
+    progress_callback=None,
 ):
     model_results = {}
     _log(verbose, "Starting perturbative triple run...")
-    for model in SUPPORTED_MODELS:
+    _emit_progress(
+        progress_callback,
+        stage="preparing",
+        message="Preparing perturbative three-model ensemble",
+        fraction=0.0,
+    )
+    total_models = len(SUPPORTED_MODELS)
+    for model_index, model in enumerate(SUPPORTED_MODELS):
         _log(verbose, f"Model {model}:")
         model_out = os.path.join(output_dir, model) if write_files else output_dir
         model_plot_out = (
             os.path.join(plot_output_dir, model)
             if (plot_output_dir is not None and write_files)
             else plot_output_dir
+        )
+        model_progress = _scale_progress_callback(
+            progress_callback,
+            start=model_index / float(total_models),
+            end=(model_index + 1) / float(total_models),
+            prefix=f"{model.title()} model",
+            stage_prefix=model,
         )
         model_results[model] = perturbative_simple_run_workflow(
             df=df,
@@ -630,8 +680,15 @@ def perturbative_triple_run_workflow(
             save_cluster_data=save_cluster_data,
             save_untransformed=save_untransformed,
             verbose=verbose,
+            progress_callback=model_progress,
         )
 
+    _emit_progress(
+        progress_callback,
+        stage="aggregating",
+        message="Combining perturbative summaries across models",
+        fraction=0.97,
+    )
     hs_mean_all = pd.concat(
         [model_results[m]["hs_mean_per_depth"] for m in SUPPORTED_MODELS], ignore_index=True
     )
@@ -648,9 +705,16 @@ def perturbative_triple_run_workflow(
     ) if any(not model_results[m]["top1_frequency"].empty for m in SUPPORTED_MODELS) else pd.DataFrame(
         columns=["neighbor_unit", "wins", "top1_fraction", "n_iterations", "model"]
     )
-    return {
+    result = {
         "hs_mean_per_depth": hs_mean_all,
         "dihs_summary": dihs_summary_all,
         "top1_frequency": top1_all,
         "models": model_results,
     }
+    _emit_progress(
+        progress_callback,
+        stage="complete",
+        message="Perturbative three-model ensemble complete",
+        fraction=1.0,
+    )
+    return result

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DIHS Correlator</title>
+  <title>DIHS Tephra Correlator</title>
   <style>
     :root {
       --paper: #f7f0e2;
@@ -164,6 +164,58 @@
       color: #6e2917;
     }
 
+    .progress-track {
+      width: 100%;
+      height: 18px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #eadcc1;
+      border: 1px solid var(--line);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #dc7b43);
+      transition: width 0.45s ease;
+    }
+
+    .job-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      margin: 14px 0 18px;
+    }
+
+    .job-stat {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fffaf0;
+    }
+
+    .job-stat strong,
+    .job-stat span {
+      display: block;
+    }
+
+    .job-stat strong {
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .job-stat span {
+      font-size: 1.02rem;
+    }
+
+    .job-note {
+      margin: 12px 0 0;
+      color: var(--muted);
+    }
+
     .preview-wrap,
     .table-wrap {
       overflow: auto;
@@ -220,6 +272,15 @@
       text-decoration: none;
     }
 
+    .ghost-button {
+      min-width: 0;
+      padding: 10px 14px;
+      background: #f6ecda;
+      color: var(--ink);
+      box-shadow: none;
+      border: 1px solid var(--line);
+    }
+
     .plot-frame {
       width: 100%;
       min-height: 520px;
@@ -231,6 +292,109 @@
     img.plot-frame {
       object-fit: contain;
       min-height: 320px;
+    }
+
+    .plot-preview {
+      cursor: zoom-in;
+      background: #fff;
+    }
+
+    .collapsible-block {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fffaf0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .collapsible-block summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 18px 20px;
+      font-weight: 700;
+      background: #f6ecda;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .collapsible-block summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .collapsible-content {
+      padding: 18px;
+    }
+
+    .viewer-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(20, 16, 12, 0.8);
+      z-index: 1000;
+    }
+
+    .viewer-overlay.open {
+      display: flex;
+    }
+
+    .viewer-shell {
+      width: min(1200px, 100%);
+      max-height: min(88vh, 900px);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+      padding: 18px;
+      border-radius: 20px;
+      background: #fffdf8;
+      box-shadow: 0 20px 44px rgba(20, 16, 12, 0.35);
+    }
+
+    .viewer-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .viewer-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .viewer-stage {
+      position: relative;
+      overflow: hidden;
+      min-height: 420px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background:
+        linear-gradient(45deg, #f7f1e6 25%, transparent 25%) -12px 0 / 24px 24px,
+        linear-gradient(-45deg, #f7f1e6 25%, transparent 25%) -12px 0 / 24px 24px,
+        linear-gradient(45deg, transparent 75%, #f7f1e6 75%) -12px 0 / 24px 24px,
+        linear-gradient(-45deg, transparent 75%, #f7f1e6 75%) -12px 0 / 24px 24px,
+        #fff;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    .viewer-stage.dragging {
+      cursor: grabbing;
+    }
+
+    .viewer-image {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      max-width: none;
+      max-height: none;
+      user-select: none;
+      transform-origin: center center;
+      will-change: transform;
+      box-shadow: 0 8px 24px rgba(20, 16, 12, 0.15);
     }
 
     details {
@@ -273,9 +437,10 @@
 <body>
   <div class="shell">
     <section class="hero">
-      <p class="meta">DIHS analysis workspace</p>
-      <h1>DIHS Correlator</h1>
-      <p>Upload a CSV dataset, configure one of the DIHS workflows, and inspect tables, logs, plots, and saved artifacts from a Flask app.</p>
+      <p class="meta">DIHS tephra analysis workspace</p>
+      <h1>DIHS Tephra Correlator</h1>
+      <p>Upload a CSV dataset, choose a DIHS workflow, and inspect tables, logs, plots, and saved artifacts from the Flask interface.</p>
+      <p class="meta">Powered by DIHS_Correlator v1.0.0; Software DOI: 10.5281/zenodo.XXXXXXX</p>
     </section>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -321,10 +486,10 @@
 
           <div class="grid form-grid">
             <label>
-              Run mode
+              Analysis workflow
               <select id="mode" name="mode">
                 {% for mode in mode_options %}
-                  <option value="{{ mode }}" {% if form_state.mode == mode %}selected{% endif %}>{{ mode }}</option>
+                  <option value="{{ mode.value }}" {% if form_state.mode == mode.value %}selected{% endif %}>{{ mode.label }}</option>
                 {% endfor %}
               </select>
             </label>
@@ -426,8 +591,8 @@
             </label>
           </div>
 
-          <div id="perturbative-settings" class="{% if form_state.mode != 'perturbative_triple_run_with_resolvedness' %}hidden{% endif %}">
-            <h3>Perturbative And Resolvedness Settings</h3>
+          <div id="perturbative-settings" class="{% if form_state.mode not in perturbative_modes %}hidden{% endif %}">
+            <h3>Perturbative Ensemble Settings</h3>
             <div class="grid form-grid">
               <label>
                 Perturbative iterations
@@ -455,6 +620,29 @@
               </label>
 
               <label>
+                Major columns
+                <select name="major_cols" multiple>
+                  {% for column in dataset.numeric_columns %}
+                    <option value="{{ column }}" {% if column in form_state.major_cols %}selected{% endif %}>{{ column }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+
+              <label>
+                Trace columns
+                <select name="trace_cols" multiple>
+                  {% for column in dataset.numeric_columns %}
+                    <option value="{{ column }}" {% if column in form_state.trace_cols %}selected{% endif %}>{{ column }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div id="resolvedness-settings" class="{% if form_state.mode not in resolvedness_modes %}hidden{% endif %}">
+            <h3>Resolvedness Calibration Settings</h3>
+            <div class="grid form-grid">
+              <label>
                 Pseudo-unknown iterations
                 <input type="number" name="pseudo_unknown_iterations" min="1" step="1" value="{{ form_state.pseudo_unknown_iterations }}">
               </label>
@@ -479,24 +667,6 @@
                 Minimum runs above threshold
                 <input type="number" name="min_runs_above_threshold" min="1" step="1" value="{{ form_state.min_runs_above_threshold }}">
               </label>
-
-              <label>
-                Major columns
-                <select name="major_cols" multiple>
-                  {% for column in dataset.numeric_columns %}
-                    <option value="{{ column }}" {% if column in form_state.major_cols %}selected{% endif %}>{{ column }}</option>
-                  {% endfor %}
-                </select>
-              </label>
-
-              <label>
-                Trace columns
-                <select name="trace_cols" multiple>
-                  {% for column in dataset.numeric_columns %}
-                    <option value="{{ column }}" {% if column in form_state.trace_cols %}selected{% endif %}>{{ column }}</option>
-                  {% endfor %}
-                </select>
-              </label>
             </div>
           </div>
 
@@ -505,6 +675,63 @@
           </div>
         </form>
       </section>
+
+      {% if job and not result %}
+        <section
+          class="panel"
+          id="job-panel"
+          data-job-id="{{ job.id }}"
+          data-dataset-id="{{ dataset.id }}"
+        >
+          <div class="card-head">
+            <div>
+              <h2>4. Run Progress</h2>
+              <p class="status" id="job-mode">{{ job.mode_label }}</p>
+            </div>
+          </div>
+
+          <div class="progress-track" aria-label="Analysis progress">
+            <div
+              class="progress-fill"
+              id="progress-fill"
+              style="width: {{ job.progress_percent }}%;"
+            ></div>
+          </div>
+
+          <div class="job-grid">
+            <div class="job-stat">
+              <strong>Status</strong>
+              <span id="job-status">{{ job.status|replace("_", " ")|title }}</span>
+            </div>
+            <div class="job-stat">
+              <strong>Progress</strong>
+              <span id="job-progress">{{ job.progress_percent }}%</span>
+            </div>
+            <div class="job-stat">
+              <strong>Stage</strong>
+              <span id="job-stage">{{ job.stage or "queued" }}</span>
+            </div>
+            <div class="job-stat">
+              <strong>Counter</strong>
+              <span id="job-counter">
+                {% if job.current is not none and job.total is not none %}
+                  {{ job.current }} / {{ job.total }}
+                {% else %}
+                  Waiting for first update
+                {% endif %}
+              </span>
+            </div>
+          </div>
+
+          <p id="job-message"><strong>Current task:</strong> {{ job.message }}</p>
+          <p class="job-note">Live progress is most detailed for perturbative and resolvedness workflows.</p>
+
+          <details id="job-log-box" {% if job.logs %}open{% endif %}>
+            <summary>Run log</summary>
+            <pre id="job-logs">{{ job.logs }}</pre>
+          </details>
+        </section>
+      {% endif %}
     {% endif %}
 
     {% if run_error %}
@@ -538,68 +765,84 @@
 
       {% if result.tables %}
         <section class="panel">
-          <h2>Tables</h2>
-          <div class="grid results-grid">
-            {% for table in result.tables %}
-              <article class="table-card">
-                <div class="card-head">
-                  <h3>{{ table.label }}</h3>
-                  <a class="link" href="{{ url_for('download_table', result_id=result.id, table_id=table.id) }}">Download CSV</a>
-                </div>
-                <div class="table-wrap">{{ table.html|safe }}</div>
-              </article>
-            {% endfor %}
-          </div>
+          <details class="collapsible-block" open>
+            <summary>Tables</summary>
+            <div class="collapsible-content">
+              <div class="grid results-grid">
+                {% for table in result.tables %}
+                  <article class="table-card">
+                    <div class="card-head">
+                      <h3>{{ table.label }}</h3>
+                      <a class="link" href="{{ url_for('download_table', result_id=result.id, table_id=table.id) }}">Download CSV</a>
+                    </div>
+                    <div class="table-wrap">{{ table.html|safe }}</div>
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
         </section>
       {% endif %}
 
       {% if result.plots %}
         <section class="panel">
-          <h2>Plots</h2>
-          <div class="grid plot-grid">
-            {% for plot in result.plots %}
-              <article class="plot-card">
-                <div class="card-head">
-                  <h3>{{ plot.label }}</h3>
-                  <a class="link" href="{{ url_for('plot_file', result_id=result.id, plot_id=plot.id) }}" target="_blank" rel="noreferrer">Open file</a>
-                </div>
-                {% if plot.is_svg %}
-                  <object class="plot-frame" data="{{ url_for('plot_file', result_id=result.id, plot_id=plot.id) }}" type="image/svg+xml"></object>
-                {% else %}
-                  <img class="plot-frame" src="{{ url_for('plot_file', result_id=result.id, plot_id=plot.id) }}" alt="{{ plot.name }}">
-                {% endif %}
-              </article>
-            {% endfor %}
-          </div>
+          <details class="collapsible-block" open>
+            <summary>Plots</summary>
+            <div class="collapsible-content">
+              <div class="grid plot-grid">
+                {% for plot in result.plots %}
+                  {% set plot_src = url_for('plot_file', result_id=result.id, plot_id=plot.id) %}
+                  <article class="plot-card">
+                    <div class="card-head">
+                      <h3>{{ plot.label }}</h3>
+                      <div class="viewer-actions">
+                        <button
+                          type="button"
+                          class="ghost-button js-open-plot"
+                          data-plot-src="{{ plot_src }}"
+                          data-plot-label="{{ plot.label }}"
+                        >
+                          Zoom & Pan
+                        </button>
+                        <a class="link" href="{{ plot_src }}" target="_blank" rel="noreferrer">Open file</a>
+                      </div>
+                    </div>
+                    <img
+                      class="plot-frame plot-preview js-open-plot"
+                      src="{{ plot_src }}"
+                      alt="{{ plot.name }}"
+                      data-plot-src="{{ plot_src }}"
+                      data-plot-label="{{ plot.label }}"
+                    >
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
         </section>
       {% endif %}
 
-      {% if result.artifacts %}
-        <section class="panel">
-          <h2>Saved Artifacts</h2>
-          <div class="grid artifact-grid">
-            {% for artifact in result.artifacts %}
-              <article class="artifact-card">
-                <div class="card-head">
-                  <div>
-                    <h3>{{ artifact.label }}</h3>
-                    <p class="hint">{{ artifact.display_path }}</p>
-                  </div>
-                  <a class="link" href="{{ url_for('download_artifact', result_id=result.id, artifact_id=artifact.id) }}">Download</a>
-                </div>
-              </article>
-            {% endfor %}
+      {% if result.plots %}
+        <div class="viewer-overlay" id="plot-viewer" aria-hidden="true">
+          <div class="viewer-shell">
+            <div class="viewer-toolbar">
+              <div>
+                <h3 id="viewer-title">Plot Viewer</h3>
+                <p class="status">Mouse wheel zooms. Drag to move. Reset to re-center.</p>
+              </div>
+              <div class="viewer-actions">
+                <button type="button" class="ghost-button" id="viewer-zoom-out">Zoom Out</button>
+                <button type="button" class="ghost-button" id="viewer-zoom-in">Zoom In</button>
+                <button type="button" class="ghost-button" id="viewer-reset">Reset</button>
+                <button type="button" id="viewer-close">Close</button>
+              </div>
+            </div>
+            <div class="viewer-stage" id="viewer-stage">
+              <img id="viewer-image" class="viewer-image" alt="">
+            </div>
           </div>
-        </section>
+        </div>
       {% endif %}
-
-      <section class="panel">
-        <h2>Additional Result Details</h2>
-        <details>
-          <summary>Inspect payload summary</summary>
-          <pre>{{ result.details_json }}</pre>
-        </details>
-      </section>
     {% endif %}
   </div>
 
@@ -612,9 +855,13 @@
       const modeSelect = document.getElementById("mode");
       const modelGroup = document.getElementById("model-group");
       const perturbativeSettings = document.getElementById("perturbative-settings");
+      const resolvednessSettings = document.getElementById("resolvedness-settings");
       const outputDirInput = document.getElementById("output-dir");
       const initialUnknownToken = {{ form_state.unknown_sample_token | tojson }};
       const initialMode = {{ form_state.mode | tojson }};
+      const modelRequiredModes = {{ model_required_modes | tojson }};
+      const perturbativeModes = {{ perturbative_modes | tojson }};
+      const resolvednessModes = {{ resolvedness_modes | tojson }};
 
       function syncUnknownOptions(preferredToken) {
         const column = classColumnSelect.value;
@@ -637,10 +884,14 @@
 
       function syncModeUI(useInitialValue) {
         const mode = modeSelect.value;
-        modelGroup.classList.toggle("hidden", mode !== "simple_run");
+        modelGroup.classList.toggle("hidden", !modelRequiredModes.includes(mode));
         perturbativeSettings.classList.toggle(
           "hidden",
-          mode !== "perturbative_triple_run_with_resolvedness"
+          !perturbativeModes.includes(mode)
+        );
+        resolvednessSettings.classList.toggle(
+          "hidden",
+          !resolvednessModes.includes(mode)
         );
         if (!useInitialValue && defaultOutputDirs[mode]) {
           outputDirInput.value = defaultOutputDirs[mode];
@@ -653,6 +904,181 @@
       syncUnknownOptions(initialUnknownToken);
       modeSelect.value = initialMode;
       syncModeUI(true);
+
+      const jobPanel = document.getElementById("job-panel");
+      const submitButton = document.querySelector("#analysis-form button[type='submit']");
+
+      if (jobPanel && submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = "Run In Progress";
+
+        const jobId = jobPanel.dataset.jobId;
+        const datasetId = jobPanel.dataset.datasetId;
+        const progressFill = document.getElementById("progress-fill");
+        const jobStatus = document.getElementById("job-status");
+        const jobProgress = document.getElementById("job-progress");
+        const jobStage = document.getElementById("job-stage");
+        const jobCounter = document.getElementById("job-counter");
+        const jobMessage = document.getElementById("job-message");
+        const jobLogs = document.getElementById("job-logs");
+        const jobLogBox = document.getElementById("job-log-box");
+
+        async function pollJob() {
+          try {
+            const response = await fetch(`/jobs/${jobId}/status`, { cache: "no-store" });
+            if (!response.ok) {
+              window.setTimeout(pollJob, 1500);
+              return;
+            }
+
+            const payload = await response.json();
+            progressFill.style.width = `${payload.progress_percent}%`;
+            jobStatus.textContent = payload.status.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+            jobProgress.textContent = `${payload.progress_percent}%`;
+            jobStage.textContent = payload.stage || "running";
+            jobCounter.textContent =
+              payload.current !== null && payload.total !== null
+                ? `${payload.current} / ${payload.total}`
+                : "Working";
+            jobMessage.innerHTML = `<strong>Current task:</strong> ${payload.message || "Working"}`;
+
+            if (payload.logs) {
+              jobLogs.textContent = payload.logs;
+              jobLogBox.open = true;
+            }
+
+            if (payload.status === "completed" && payload.result_id) {
+              window.location.href = `/?dataset=${encodeURIComponent(datasetId)}&result=${encodeURIComponent(payload.result_id)}`;
+              return;
+            }
+
+            if (payload.status === "error") {
+              submitButton.disabled = false;
+              submitButton.textContent = "Run Analysis";
+              return;
+            }
+          } catch (error) {
+            // Keep polling on transient client-side failures.
+          }
+
+          window.setTimeout(pollJob, 1200);
+        }
+
+        pollJob();
+      }
+
+      const plotViewer = document.getElementById("plot-viewer");
+      if (plotViewer) {
+        const viewerStage = document.getElementById("viewer-stage");
+        const viewerImage = document.getElementById("viewer-image");
+        const viewerTitle = document.getElementById("viewer-title");
+        const viewerClose = document.getElementById("viewer-close");
+        const viewerZoomIn = document.getElementById("viewer-zoom-in");
+        const viewerZoomOut = document.getElementById("viewer-zoom-out");
+        const viewerReset = document.getElementById("viewer-reset");
+        const openPlotButtons = document.querySelectorAll(".js-open-plot");
+
+        let scale = 1;
+        let translateX = 0;
+        let translateY = 0;
+        let dragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let dragOriginX = 0;
+        let dragOriginY = 0;
+
+        function renderViewerTransform() {
+          viewerImage.style.transform = `translate(${translateX}px, ${translateY}px) translate(-50%, -50%) scale(${scale})`;
+        }
+
+        function resetViewer() {
+          scale = 1;
+          translateX = 0;
+          translateY = 0;
+          renderViewerTransform();
+        }
+
+        function closeViewer() {
+          plotViewer.classList.remove("open");
+          plotViewer.setAttribute("aria-hidden", "true");
+          viewerImage.removeAttribute("src");
+        }
+
+        function openViewer(src, label) {
+          viewerImage.src = src;
+          viewerImage.alt = label;
+          viewerTitle.textContent = label || "Plot Viewer";
+          resetViewer();
+          plotViewer.classList.add("open");
+          plotViewer.setAttribute("aria-hidden", "false");
+        }
+
+        function zoomBy(delta) {
+          scale = Math.min(8, Math.max(0.35, Number((scale + delta).toFixed(2))));
+          renderViewerTransform();
+        }
+
+        openPlotButtons.forEach((element) => {
+          element.addEventListener("click", () => {
+            openViewer(element.dataset.plotSrc, element.dataset.plotLabel);
+          });
+        });
+
+        viewerClose.addEventListener("click", closeViewer);
+        viewerZoomIn.addEventListener("click", () => zoomBy(0.2));
+        viewerZoomOut.addEventListener("click", () => zoomBy(-0.2));
+        viewerReset.addEventListener("click", resetViewer);
+
+        plotViewer.addEventListener("click", (event) => {
+          if (event.target === plotViewer) {
+            closeViewer();
+          }
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && plotViewer.classList.contains("open")) {
+            closeViewer();
+          }
+        });
+
+        viewerStage.addEventListener("wheel", (event) => {
+          event.preventDefault();
+          zoomBy(event.deltaY < 0 ? 0.12 : -0.12);
+        }, { passive: false });
+
+        viewerStage.addEventListener("pointerdown", (event) => {
+          dragging = true;
+          dragStartX = event.clientX;
+          dragStartY = event.clientY;
+          dragOriginX = translateX;
+          dragOriginY = translateY;
+          viewerStage.classList.add("dragging");
+          viewerStage.setPointerCapture(event.pointerId);
+        });
+
+        viewerStage.addEventListener("pointermove", (event) => {
+          if (!dragging) {
+            return;
+          }
+          translateX = dragOriginX + (event.clientX - dragStartX);
+          translateY = dragOriginY + (event.clientY - dragStartY);
+          renderViewerTransform();
+        });
+
+        function stopDragging(event) {
+          if (!dragging) {
+            return;
+          }
+          dragging = false;
+          viewerStage.classList.remove("dragging");
+          if (event && event.pointerId !== undefined) {
+            viewerStage.releasePointerCapture(event.pointerId);
+          }
+        }
+
+        viewerStage.addEventListener("pointerup", stopDragging);
+        viewerStage.addEventListener("pointercancel", stopDragging);
+      }
     </script>
   {% endif %}
 </body>

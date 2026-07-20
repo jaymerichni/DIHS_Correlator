@@ -39,9 +39,11 @@ from DIHS_Correlator.workflows.pseudo_unknown import run_pseudo_unknown_experime
 from DIHS_Correlator.workflows.utils import (
     _class_key,
     _class_match_mask,
+    _emit_progress,
     _log,
     _prepare_working_df,
     _resolve_unknown_class,
+    _scale_progress_callback,
 )
 
 SUPPORTED_MODELS = ("agglomerative", "kmeans", "gaussian")
@@ -85,6 +87,7 @@ def _run_pseudo_unknown_for_top1(
     write_files: bool,
     output_dir: str,
     verbose: bool,
+    progress_callback=None,
 ):
     top1_key = top1_candidate["top1_class_key"]
     top1_mask = _class_match_mask(pseudo_df[class_column], top1_candidate["top1_class"])
@@ -106,26 +109,29 @@ def _run_pseudo_unknown_for_top1(
         verbose,
         f"Model {model}: pseudo-unknown calibration on Top-1 class '{top1_candidate['top1_class']}'",
     )
-    pseudo_unknown_result = pseudo_unknown_run_fn(
-        df=pseudo_df,
-        model_type=model,
-        transform_type=transform_type,
-        class_column=class_column,
-        sample_size=pseudo_sample_size,
-        n_iterations=pseudo_unknown_iterations,
-        excluded_classes=excluded_classes,
-        random_state=pseudo_random_state,
-        max_depth=max_depth,
-        exclude_columns=exclude_columns,
-        target_precision=max(precision_targets),
-        reported_precisions=precision_targets,
-        min_runs_above_threshold=min_runs_above_threshold,
-        plot_everything=False,
-        write_files=write_files,
-        output_dir=output_dir,
-        plot_output_dir=None,
-        verbose=verbose,
-    )
+    pseudo_kwargs = {
+        "df": pseudo_df,
+        "model_type": model,
+        "transform_type": transform_type,
+        "class_column": class_column,
+        "sample_size": pseudo_sample_size,
+        "n_iterations": pseudo_unknown_iterations,
+        "excluded_classes": excluded_classes,
+        "random_state": pseudo_random_state,
+        "max_depth": max_depth,
+        "exclude_columns": exclude_columns,
+        "target_precision": max(precision_targets),
+        "reported_precisions": precision_targets,
+        "min_runs_above_threshold": min_runs_above_threshold,
+        "plot_everything": False,
+        "write_files": write_files,
+        "output_dir": output_dir,
+        "plot_output_dir": None,
+        "verbose": verbose,
+    }
+    if "progress_callback" in inspect.signature(pseudo_unknown_run_fn).parameters:
+        pseudo_kwargs["progress_callback"] = progress_callback
+    pseudo_unknown_result = pseudo_unknown_run_fn(**pseudo_kwargs)
     return pseudo_unknown_result, top1_source_count
 
 
@@ -160,6 +166,7 @@ def perturbative_triple_run_with_resolvedness_workflow(
     integration_depth: int | None = None,
     verbose: bool = True,
     return_details: bool = False,
+    progress_callback=None,
     # Optional function overrides for dependency injection.
     perturbative_simple_run_fn=None,
     pseudo_unknown_run_fn=None,
@@ -291,9 +298,19 @@ def perturbative_triple_run_with_resolvedness_workflow(
         verbose,
         f"Unknown class resolved to: {unknown_class} | Pseudo-unknown sample size: {pseudo_sample_size}",
     )
+    _emit_progress(
+        progress_callback,
+        stage="preparing",
+        message="Preparing perturbative resolvedness workflow",
+        fraction=0.0,
+    )
 
-    for model in SUPPORTED_MODELS:
+    total_models = len(SUPPORTED_MODELS)
+    for model_index, model in enumerate(SUPPORTED_MODELS):
         _log(verbose, f"Model {model}: perturbative ensemble")
+        model_start = model_index / float(total_models)
+        model_end = (model_index + 1) / float(total_models)
+        model_span = model_end - model_start
         model_root = os.path.join(output_dir, model)
         perturbative_output_dir = os.path.join(model_root, "perturbative")
         pseudo_output_dir = os.path.join(model_root, "pseudo_unknown")
@@ -340,6 +357,14 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 perturbative_kwargs["integration_depth"] = int(integration_depth)
             elif "pairwise_integration_depth" in perturbative_params:
                 perturbative_kwargs["pairwise_integration_depth"] = int(integration_depth)
+        if "progress_callback" in perturbative_params:
+            perturbative_kwargs["progress_callback"] = _scale_progress_callback(
+                progress_callback,
+                start=model_start,
+                end=model_start + model_span * 0.55,
+                prefix=f"{model.title()} perturbative ensemble",
+                stage_prefix=f"{model}.perturbative",
+            )
 
         perturbative_result = perturbative_simple_run_fn(**perturbative_kwargs)
         perturbative_common_depth = perturbative_result["common_depth_level"]
@@ -369,6 +394,13 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 unknown_class=unknown_class,
                 model=model,
             )
+            pseudo_progress = _scale_progress_callback(
+                progress_callback,
+                start=model_start + model_span * 0.56,
+                end=model_start + model_span * 0.84,
+                prefix=f"{model.title()} pseudo-unknown calibration",
+                stage_prefix=f"{model}.pseudo_unknown",
+            )
             pseudo_unknown_result, top1_source_count = _run_pseudo_unknown_for_top1(
                 pseudo_unknown_run_fn=pseudo_unknown_run_fn,
                 pseudo_df=pseudo_df,
@@ -386,6 +418,7 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 write_files=write_files,
                 output_dir=pseudo_output_dir,
                 verbose=verbose,
+                progress_callback=pseudo_progress,
             )
             pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
             if pseudo_common_depth is not None and chosen_depth > int(pseudo_common_depth):
@@ -414,7 +447,30 @@ def perturbative_triple_run_with_resolvedness_workflow(
             pseudo_unknown_result = None
             top1_source_count = None
             stable_alignment = False
-            for _ in range(6):
+            for alignment_pass in range(6):
+                pass_start = model_start + model_span * (0.56 + 0.28 * (alignment_pass / 6.0))
+                pass_end = model_start + model_span * (
+                    0.56 + 0.28 * ((alignment_pass + 1) / 6.0)
+                )
+                _emit_progress(
+                    progress_callback,
+                    stage=f"{model}.alignment",
+                    message=(
+                        f"{model.title()} pseudo-unknown alignment pass "
+                        f"{alignment_pass + 1} of 6"
+                    ),
+                    fraction=pass_start,
+                )
+                pseudo_progress = _scale_progress_callback(
+                    progress_callback,
+                    start=pass_start,
+                    end=pass_end,
+                    prefix=(
+                        f"{model.title()} pseudo-unknown calibration "
+                        f"(alignment pass {alignment_pass + 1}/6)"
+                    ),
+                    stage_prefix=f"{model}.pseudo_unknown",
+                )
                 pseudo_unknown_result, top1_source_count = _run_pseudo_unknown_for_top1(
                     pseudo_unknown_run_fn=pseudo_unknown_run_fn,
                     pseudo_df=pseudo_df,
@@ -432,6 +488,7 @@ def perturbative_triple_run_with_resolvedness_workflow(
                     write_files=write_files,
                     output_dir=pseudo_output_dir,
                     verbose=verbose,
+                    progress_callback=pseudo_progress,
                 )
                 pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
                 available_depths = [
@@ -507,6 +564,12 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 target_precisions=precision_targets,
                 integration_depth=chosen_depth,
             )
+        )
+        _emit_progress(
+            progress_callback,
+            stage=f"{model}.calibration_summary",
+            message=f"{model.title()} resolvedness summary",
+            fraction=model_start + model_span * 0.90,
         )
 
         transform_name = str(transform_type).strip().lower()
@@ -615,6 +678,12 @@ def perturbative_triple_run_with_resolvedness_workflow(
             )
 
         if plot_everything:
+            _emit_progress(
+                progress_callback,
+                stage=f"{model}.plotting",
+                message=f"{model.title()} resolvedness plots",
+                fraction=model_start + model_span * 0.96,
+            )
             os.makedirs(resolvedness_plot_dir, exist_ok=True)
             mean_margin = float(summary_row["margin_mean"])
             empirical_resolvedness = summary_row["empirical_resolvedness"]
@@ -718,6 +787,12 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 "artifacts": resolvedness_artifacts,
             },
         }
+        _emit_progress(
+            progress_callback,
+            stage=f"{model}.complete",
+            message=f"{model.title()} resolvedness workflow complete",
+            fraction=model_end,
+        )
 
     summary_df = pd.DataFrame(summary_rows)
     root_artifacts = {}
@@ -737,6 +812,12 @@ def perturbative_triple_run_with_resolvedness_workflow(
         "target_precisions": precision_targets,
         "artifacts": root_artifacts,
     }
+    _emit_progress(
+        progress_callback,
+        stage="complete",
+        message="Perturbative resolvedness workflow complete",
+        fraction=1.0,
+    )
     if return_details:
         return out
     return out["summary"]

@@ -1,14 +1,16 @@
-"""Flask interface for the DIHS Correlator public API."""
+"""Flask interface for the DIHS Tephra Correlator public API."""
 
 from __future__ import annotations
 
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import sys
 import tempfile
+import threading
 import time
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -16,7 +18,17 @@ from typing import Any
 from uuid import uuid4
 
 import pandas as pd
-from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
+from flask import (
+    Flask,
+    abort,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -26,6 +38,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from DIHS_Correlator import (  # noqa: E402
+    perturbative_simple_run,
+    perturbative_triple_run,
     perturbative_triple_run_with_resolvedness,
     simple_run,
     triple_run,
@@ -34,16 +48,39 @@ from DIHS_Correlator import (  # noqa: E402
 
 MODEL_OPTIONS = ["agglomerative", "kmeans", "gaussian"]
 TRANSFORM_OPTIONS = ["clr", "ilr", "scaled", "none"]
-MODE_OPTIONS = [
-    "simple_run",
-    "triple_run",
-    "perturbative_triple_run_with_resolvedness",
-]
-DEFAULT_OUTPUT_DIRS = {
-    "simple_run": "./Results",
-    "triple_run": "./Results_triple",
-    "perturbative_triple_run_with_resolvedness": "./Results_perturbative_triple_resolvedness",
+MODE_CONFIGS = {
+    "simple_run": {
+        "label": "Single-model DIHS run",
+        "default_output_dir": "./Results",
+    },
+    "triple_run": {
+        "label": "Three-model DIHS run",
+        "default_output_dir": "./Results_triple",
+    },
+    "perturbative_simple_run": {
+        "label": "Perturbative single-model ensemble",
+        "default_output_dir": "./Results_perturbative",
+    },
+    "perturbative_triple_run": {
+        "label": "Perturbative three-model ensemble",
+        "default_output_dir": "./Results_perturbative_triple",
+    },
+    "perturbative_triple_run_with_resolvedness": {
+        "label": "Perturbative three-model ensemble with resolvedness calibration",
+        "default_output_dir": "./Results_perturbative_triple_resolvedness",
+    },
 }
+MODE_OPTIONS = list(MODE_CONFIGS)
+DEFAULT_OUTPUT_DIRS = {
+    mode: config["default_output_dir"] for mode, config in MODE_CONFIGS.items()
+}
+MODEL_REQUIRED_MODES = {"simple_run", "perturbative_simple_run"}
+PERTURBATIVE_MODES = {
+    "perturbative_simple_run",
+    "perturbative_triple_run",
+    "perturbative_triple_run_with_resolvedness",
+}
+RESOLVEDNESS_MODES = {"perturbative_triple_run_with_resolvedness"}
 DISPLAY_TABLE_KEYS = {
     "hs_per_depth",
     "dihs_total",
@@ -60,6 +97,7 @@ DISPLAY_TABLE_KEYS = {
     "perturbative_regime_summary",
     "pairwise_total_mean_matrix",
 }
+RESOLVEDNESS_RESULT_SENTINELS = {"models", "target_precisions", "unknown_class"}
 PLOT_SUFFIXES = {".svg", ".png", ".jpg", ".jpeg"}
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -72,6 +110,8 @@ CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 
 DATASET_CACHE: dict[str, dict[str, Any]] = {}
 RESULT_CACHE: dict[str, dict[str, Any]] = {}
+JOB_CACHE: dict[str, dict[str, Any]] = {}
+JOB_LOCK = threading.Lock()
 
 
 def _sorted_values(values: pd.Series) -> list[Any]:
@@ -138,6 +178,18 @@ def _cleanup_cache() -> None:
         temp_root = entry.get("temp_root") if entry else None
         if temp_root:
             shutil.rmtree(temp_root, ignore_errors=True)
+
+    with JOB_LOCK:
+        expired_job_ids = [
+            job_id
+            for job_id, entry in JOB_CACHE.items()
+            if entry["updated_at"] < cutoff
+        ]
+        for job_id in expired_job_ids:
+            entry = JOB_CACHE.pop(job_id, None)
+            temp_root = entry.get("temp_root") if entry else None
+            if temp_root:
+                shutil.rmtree(temp_root, ignore_errors=True)
 
 
 @app.before_request
@@ -242,6 +294,57 @@ def _get_result_entry(result_id: str | None) -> dict[str, Any] | None:
     return entry
 
 
+def _get_job_entry(job_id: str | None) -> dict[str, Any] | None:
+    if not job_id:
+        return None
+    with JOB_LOCK:
+        entry = JOB_CACHE.get(job_id)
+        if entry is not None:
+            entry["updated_at"] = time.time()
+            return dict(entry)
+    return None
+
+
+def _set_job_entry(job_id: str, entry: dict[str, Any]) -> None:
+    with JOB_LOCK:
+        JOB_CACHE[job_id] = entry
+
+
+def _update_job(job_id: str, **fields: Any) -> None:
+    with JOB_LOCK:
+        entry = JOB_CACHE.get(job_id)
+        if entry is None:
+            return
+        entry.update(fields)
+        entry["updated_at"] = time.time()
+
+
+def _make_job_progress_callback(job_id: str):
+    def _progress(payload: dict[str, Any]) -> None:
+        fraction = payload.get("fraction")
+        current = payload.get("current")
+        total = payload.get("total")
+        if fraction is None and current is not None and total:
+            fraction = current / float(total)
+
+        fields: dict[str, Any] = {}
+        if fraction is not None:
+            fraction = min(max(float(fraction), 0.0), 1.0)
+            fields["progress_fraction"] = fraction
+            fields["progress_percent"] = int(round(fraction * 100.0))
+        if "stage" in payload:
+            fields["stage"] = payload.get("stage")
+        if "message" in payload:
+            fields["message"] = payload.get("message")
+        if current is not None:
+            fields["current"] = int(current)
+        if total is not None:
+            fields["total"] = int(total)
+        _update_job(job_id, **fields)
+
+    return _progress
+
+
 def _bool_from_form(name: str) -> bool:
     return request.form.get(name) == "on"
 
@@ -338,20 +441,86 @@ def _run_selected_mode(
     df: pd.DataFrame,
     common: dict[str, Any],
     advanced: dict[str, Any],
+    progress_callback=None,
 ):
     if mode == "simple_run":
-        return simple_run(
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "running",
+                    "message": "Running single-model DIHS analysis",
+                    "fraction": 0.1,
+                }
+            )
+        result = simple_run(
             df=df,
             model_type=advanced["model_type"],
             **common,
             return_details=True,
         )
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "complete",
+                    "message": "Single-model DIHS analysis complete",
+                    "fraction": 1.0,
+                }
+            )
+        return result
 
     if mode == "triple_run":
-        return triple_run(
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "running",
+                    "message": "Running three-model DIHS analysis",
+                    "fraction": 0.1,
+                }
+            )
+        result = triple_run(
             df=df,
             **common,
             return_details=True,
+        )
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "complete",
+                    "message": "Three-model DIHS analysis complete",
+                    "fraction": 1.0,
+                }
+            )
+        return result
+
+    if mode == "perturbative_simple_run":
+        return perturbative_simple_run(
+            df=df,
+            model_type=advanced["model_type"],
+            **common,
+            n_iterations=advanced["n_iterations"],
+            major_cols=advanced["major_cols"],
+            trace_cols=advanced["trace_cols"],
+            major_error=advanced["major_error"],
+            trace_error=advanced["trace_error"],
+            perturbation_seed=advanced["perturbation_seed"],
+            integration_depth=advanced["integration_depth"],
+            return_details=True,
+            progress_callback=progress_callback,
+        )
+
+    if mode == "perturbative_triple_run":
+        return perturbative_triple_run(
+            df=df,
+            **common,
+            n_iterations=advanced["n_iterations"],
+            major_cols=advanced["major_cols"],
+            trace_cols=advanced["trace_cols"],
+            major_error=advanced["major_error"],
+            trace_error=advanced["trace_error"],
+            perturbation_seed=advanced["perturbation_seed"],
+            integration_depth=advanced["integration_depth"],
+            return_details=True,
+            progress_callback=progress_callback,
         )
 
     return perturbative_triple_run_with_resolvedness(
@@ -370,6 +539,7 @@ def _run_selected_mode(
         min_runs_above_threshold=advanced["min_runs_above_threshold"],
         integration_depth=advanced["integration_depth"],
         return_details=True,
+        progress_callback=progress_callback,
     )
 
 
@@ -458,7 +628,7 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
     }
 
     model_type = form_state["model_type"]
-    if mode == "simple_run" and model_type not in MODEL_OPTIONS:
+    if mode in MODEL_REQUIRED_MODES and model_type not in MODEL_OPTIONS:
         raise ValueError(f"Unsupported model: {model_type}")
 
     common = {
@@ -536,6 +706,31 @@ def _format_label(parts: tuple[str, ...]) -> str:
     return " / ".join(cleaned)
 
 
+def _is_threshold_detail_column(column: str) -> bool:
+    name = str(column).strip().lower()
+    return "threshold" in name and re.search(r"_\d+$", name) is not None
+
+
+def _resolvedness_result_root(root_value: Any) -> bool:
+    return isinstance(root_value, dict) and RESOLVEDNESS_RESULT_SENTINELS.issubset(root_value)
+
+
+def _is_resolvedness_summary_path(root_value: Any, path: tuple[str, ...]) -> bool:
+    if not path:
+        return False
+    if path[-1] == "resolvedness_summary":
+        return True
+    return path == ("summary",) and _resolvedness_result_root(root_value)
+
+
+def _table_label_for_path(root_value: Any, path: tuple[str, ...]) -> str:
+    if path == ("summary",) and _resolvedness_result_root(root_value):
+        return "Resolvedness Summary"
+    if path[-1] == "resolvedness_summary" and len(path) >= 2 and path[0] == "models":
+        return f"{path[1].title()} Resolvedness Summary"
+    return _format_label(path)
+
+
 def _normalize_table_for_display(key: str, df: pd.DataFrame) -> pd.DataFrame:
     if key in {"pairwise_total_matrix", "pairwise_total_mean_matrix"}:
         return df.reset_index()
@@ -546,26 +741,37 @@ def _collect_tables(
     value: Any,
     path: tuple[str, ...] = (),
     collected: list[dict[str, Any]] | None = None,
+    root_value: Any | None = None,
 ) -> list[dict[str, Any]]:
     if collected is None:
         collected = []
+    if root_value is None:
+        root_value = value
     if isinstance(value, pd.DataFrame):
-        if path and path[-1] in DISPLAY_TABLE_KEYS:
+        if path and path[-1] in DISPLAY_TABLE_KEYS and _is_resolvedness_summary_path(root_value, path):
+            table_df = _normalize_table_for_display(path[-1], value)
+            if not table_df.empty:
+                keep_columns = [
+                    column
+                    for column in table_df.columns
+                    if not _is_threshold_detail_column(str(column))
+                ]
+                table_df = table_df.loc[:, keep_columns]
             collected.append(
                 {
                     "path": path,
-                    "label": _format_label(path),
-                    "df": _normalize_table_for_display(path[-1], value),
+                    "label": _table_label_for_path(root_value, path),
+                    "df": table_df,
                 }
             )
         return collected
     if isinstance(value, dict):
         for key, nested in value.items():
-            _collect_tables(nested, path + (str(key),), collected)
+            _collect_tables(nested, path + (str(key),), collected, root_value)
         return collected
     if isinstance(value, (list, tuple)):
         for index, nested in enumerate(value):
-            _collect_tables(nested, path + (str(index),), collected)
+            _collect_tables(nested, path + (str(index),), collected, root_value)
     return collected
 
 
@@ -745,10 +951,90 @@ def _store_result(
     return result_id
 
 
+def _job_payload(job_entry: dict[str, Any] | None) -> dict[str, Any] | None:
+    if job_entry is None:
+        return None
+    return {
+        "id": job_entry["id"],
+        "dataset_id": job_entry["dataset_id"],
+        "mode": job_entry["mode"],
+        "mode_label": job_entry["mode_label"],
+        "status": job_entry["status"],
+        "stage": job_entry.get("stage"),
+        "message": job_entry.get("message"),
+        "progress_percent": int(job_entry.get("progress_percent", 0)),
+        "current": job_entry.get("current"),
+        "total": job_entry.get("total"),
+        "result_id": job_entry.get("result_id"),
+        "error": job_entry.get("error"),
+        "logs": job_entry.get("logs", ""),
+    }
+
+
+def _run_analysis_job(
+    *,
+    job_id: str,
+    dataset_id: str,
+    df: pd.DataFrame,
+    parsed: dict[str, Any],
+) -> None:
+    stdout_buffer = io.StringIO()
+    progress_callback = _make_job_progress_callback(job_id)
+    try:
+        _update_job(
+            job_id,
+            status="running",
+            stage="starting",
+            message=f"Starting {MODE_CONFIGS[parsed['mode']]['label']}",
+            progress_fraction=0.01,
+            progress_percent=1,
+        )
+        with redirect_stdout(stdout_buffer):
+            result = _run_selected_mode(
+                parsed["mode"],
+                df,
+                parsed["common"],
+                parsed["advanced"],
+                progress_callback=progress_callback,
+            )
+
+        logs = stdout_buffer.getvalue().strip()
+        result_id = _store_result(
+            result=result,
+            dataset_id=dataset_id,
+            form_state=parsed["form_state"],
+            logs=logs,
+            temp_root=parsed["temp_root"],
+            output_dir=parsed["common"]["output_dir"],
+            write_files=parsed["common"]["write_files"],
+        )
+        _update_job(
+            job_id,
+            status="completed",
+            stage="complete",
+            message="Analysis complete",
+            progress_fraction=1.0,
+            progress_percent=100,
+            result_id=result_id,
+            logs=logs,
+            temp_root=None,
+        )
+    except Exception as exc:
+        _update_job(
+            job_id,
+            status="error",
+            stage="error",
+            message=f"Analysis failed: {exc}",
+            error=str(exc),
+            logs=stdout_buffer.getvalue().strip(),
+        )
+
+
 def _render_page(
     *,
     dataset_entry: dict[str, Any] | None = None,
     result_entry: dict[str, Any] | None = None,
+    job_entry: dict[str, Any] | None = None,
     form_state: dict[str, Any] | None = None,
     run_error: str | None = None,
     run_logs: str = "",
@@ -785,12 +1071,18 @@ def _render_page(
         "index.html",
         dataset=dataset_payload,
         result=result_entry,
+        job=_job_payload(job_entry),
         form_state=form_payload,
         selected_unknown_options=selected_unknown_options,
-        mode_options=MODE_OPTIONS,
+        mode_options=[
+            {"value": mode, "label": MODE_CONFIGS[mode]["label"]} for mode in MODE_OPTIONS
+        ],
         model_options=MODEL_OPTIONS,
         transform_options=TRANSFORM_OPTIONS,
         default_output_dirs=DEFAULT_OUTPUT_DIRS,
+        model_required_modes=sorted(MODEL_REQUIRED_MODES),
+        perturbative_modes=sorted(PERTURBATIVE_MODES),
+        resolvedness_modes=sorted(RESOLVEDNESS_MODES),
         run_error=run_error,
         run_logs=run_logs,
     )
@@ -800,12 +1092,31 @@ def _render_page(
 def index():
     dataset_entry = _get_dataset_entry(request.args.get("dataset"))
     result_entry = _get_result_entry(request.args.get("result"))
+    job_entry = _get_job_entry(request.args.get("job"))
+    if job_entry is not None and dataset_entry is None:
+        dataset_entry = _get_dataset_entry(job_entry["dataset_id"])
+    if result_entry is None and job_entry is not None and job_entry.get("result_id"):
+        result_entry = _get_result_entry(job_entry["result_id"])
     if result_entry is not None and dataset_entry is None:
         dataset_entry = _get_dataset_entry(result_entry["dataset_id"])
     if result_entry is not None and dataset_entry is not None:
-        return _render_page(dataset_entry=dataset_entry, result_entry=result_entry)
+        return _render_page(
+            dataset_entry=dataset_entry,
+            result_entry=result_entry,
+            job_entry=job_entry,
+        )
     if dataset_entry is not None:
-        return _render_page(dataset_entry=dataset_entry)
+        run_error = None
+        run_logs = ""
+        if job_entry is not None and job_entry["status"] == "error":
+            run_error = job_entry.get("message")
+            run_logs = job_entry.get("logs", "")
+        return _render_page(
+            dataset_entry=dataset_entry,
+            job_entry=job_entry,
+            run_error=run_error,
+            run_logs=run_logs,
+        )
     return _render_page()
 
 
@@ -846,33 +1157,49 @@ def run_analysis():
             run_error=str(exc),
         )
 
-    stdout_buffer = io.StringIO()
-    try:
-        with redirect_stdout(stdout_buffer):
-            result = _run_selected_mode(
-                parsed["mode"],
-                dataset_entry["df"],
-                parsed["common"],
-                parsed["advanced"],
-            )
-    except Exception as exc:
-        return _render_page(
-            dataset_entry=dataset_entry,
-            form_state=parsed["form_state"],
-            run_error=f"Analysis failed: {exc}",
-            run_logs=stdout_buffer.getvalue().strip(),
-        )
-
-    result_id = _store_result(
-        result=result,
-        dataset_id=dataset_entry["id"],
-        form_state=parsed["form_state"],
-        logs=stdout_buffer.getvalue().strip(),
-        temp_root=parsed["temp_root"],
-        output_dir=parsed["common"]["output_dir"],
-        write_files=parsed["common"]["write_files"],
+    job_id = uuid4().hex
+    _set_job_entry(
+        job_id,
+        {
+            "id": job_id,
+            "dataset_id": dataset_entry["id"],
+            "mode": parsed["mode"],
+            "mode_label": MODE_CONFIGS[parsed["mode"]]["label"],
+            "form_state": parsed["form_state"],
+            "status": "queued",
+            "stage": "queued",
+            "message": f"Queued {MODE_CONFIGS[parsed['mode']]['label']}",
+            "progress_fraction": 0.0,
+            "progress_percent": 0,
+            "current": None,
+            "total": None,
+            "result_id": None,
+            "error": None,
+            "logs": "",
+            "temp_root": parsed["temp_root"],
+            "updated_at": time.time(),
+        },
     )
-    return redirect(url_for("index", dataset=dataset_entry["id"], result=result_id))
+    worker = threading.Thread(
+        target=_run_analysis_job,
+        kwargs={
+            "job_id": job_id,
+            "dataset_id": dataset_entry["id"],
+            "df": dataset_entry["df"],
+            "parsed": parsed,
+        },
+        daemon=True,
+    )
+    worker.start()
+    return redirect(url_for("index", dataset=dataset_entry["id"], job=job_id))
+
+
+@app.route("/jobs/<job_id>/status", methods=["GET"])
+def job_status(job_id: str):
+    job_entry = _get_job_entry(job_id)
+    if job_entry is None:
+        abort(404)
+    return jsonify(_job_payload(job_entry))
 
 
 @app.route("/downloads/tables/<result_id>/<table_id>.csv", methods=["GET"])

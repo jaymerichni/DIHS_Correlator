@@ -1,6 +1,6 @@
 """Shared workflow utilities and helpers."""
 
-from typing import Any
+from typing import Any, Callable
 import warnings
 
 import numpy as np
@@ -28,6 +28,66 @@ def _log(verbose: bool, message: str):
     """Log a message if verbose is True."""
     if verbose:
         print(message)
+
+
+def _emit_progress(
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    *,
+    stage: str | None = None,
+    message: str | None = None,
+    fraction: float | None = None,
+    current: int | None = None,
+    total: int | None = None,
+):
+    """Emit a progress update without letting UI concerns break the workflow."""
+    if progress_callback is None:
+        return
+
+    payload: dict[str, Any] = {}
+    if stage is not None:
+        payload["stage"] = stage
+    if message is not None:
+        payload["message"] = message
+    if fraction is not None:
+        payload["fraction"] = min(max(float(fraction), 0.0), 1.0)
+    if current is not None:
+        payload["current"] = int(current)
+    if total is not None:
+        payload["total"] = int(total)
+
+    try:
+        progress_callback(payload)
+    except Exception:
+        return
+
+
+def _scale_progress_callback(
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    *,
+    start: float,
+    end: float,
+    prefix: str | None = None,
+    stage_prefix: str | None = None,
+):
+    """Map a child workflow's 0..1 progress range into a parent range."""
+    if progress_callback is None:
+        return None
+
+    span = float(end) - float(start)
+
+    def _wrapped(payload: dict[str, Any]):
+        child = dict(payload)
+        if "fraction" in child and child["fraction"] is not None:
+            inner = min(max(float(child["fraction"]), 0.0), 1.0)
+            child["fraction"] = float(start) + span * inner
+        if prefix:
+            message = child.get("message")
+            child["message"] = f"{prefix}: {message}" if message else prefix
+        if stage_prefix and child.get("stage"):
+            child["stage"] = f"{stage_prefix}.{child['stage']}"
+        _emit_progress(progress_callback, **child)
+
+    return _wrapped
 
 
 def _print_progress(current: int, total: int, width: int = 30):

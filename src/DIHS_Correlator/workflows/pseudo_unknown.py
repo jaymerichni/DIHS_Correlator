@@ -11,7 +11,11 @@ from DIHS_Correlator.viz.pseudo_unknown import (
     plot_threshold_diagnostics,
 )
 from DIHS_Correlator.workflows.single_run import CorrelationRunner
-from DIHS_Correlator.workflows.utils import _normalize_transform_type, _class_key
+from DIHS_Correlator.workflows.utils import (
+    _class_key,
+    _emit_progress,
+    _normalize_transform_type,
+)
 
 
 TRANSFORM_NAME_TO_ID = {v: k for k, v in BASE_TRANSFORMATIONS.items()}
@@ -361,6 +365,7 @@ def run_pseudo_unknown_experiments(
     output_dir: str = "./Results_pseudo_unknown",
     plot_output_dir: str | None = None,
     verbose: bool = True,
+    progress_callback=None,
 ):
     """
     Run positive and negative pseudo-unknown experiments for each eligible class.
@@ -417,6 +422,17 @@ def run_pseudo_unknown_experiments(
 
     if not eligible_classes:
         raise ValueError("No eligible classes available for pseudo-unknown experiments.")
+
+    total_runs = len(eligible_classes) * int(n_iterations) * 2
+    completed_runs = 0
+    _emit_progress(
+        progress_callback,
+        stage="preparing",
+        message="Preparing pseudo-unknown calibration runs",
+        current=0,
+        total=total_runs,
+        fraction=0.0,
+    )
 
     rng = np.random.default_rng(random_state)
     runner = CorrelationRunner(
@@ -482,6 +498,18 @@ def run_pseudo_unknown_experiments(
             hs_positive["true_source_present"] = True
             hs_rows.append(hs_positive)
             run_id_counter += 1
+            completed_runs += 1
+            _emit_progress(
+                progress_callback,
+                stage="pseudo_unknown_runs",
+                message=(
+                    f"Pseudo-unknown positive run {completed_runs} of {total_runs} "
+                    f"for source {source_class} (iteration {iteration + 1}/{n_iterations})"
+                ),
+                current=completed_runs,
+                total=total_runs,
+                fraction=0.05 + 0.80 * (completed_runs / float(total_runs)),
+            )
 
             negative_run = runner.run_combination(
                 data=negative_df,
@@ -504,7 +532,25 @@ def run_pseudo_unknown_experiments(
             hs_negative["true_source_present"] = False
             hs_rows.append(hs_negative)
             run_id_counter += 1
+            completed_runs += 1
+            _emit_progress(
+                progress_callback,
+                stage="pseudo_unknown_runs",
+                message=(
+                    f"Pseudo-unknown negative run {completed_runs} of {total_runs} "
+                    f"for source {source_class} (iteration {iteration + 1}/{n_iterations})"
+                ),
+                current=completed_runs,
+                total=total_runs,
+                fraction=0.05 + 0.80 * (completed_runs / float(total_runs)),
+            )
 
+    _emit_progress(
+        progress_callback,
+        stage="aggregating",
+        message="Aggregating pseudo-unknown calibration outputs",
+        fraction=0.88,
+    )
     hs_iterations = pd.concat(hs_rows, ignore_index=True) if hs_rows else pd.DataFrame()
     dihs_iterations_by_depth, common_depth_level = _recompute_dihs_for_all_depths(
         hs_iterations
@@ -717,6 +763,12 @@ def run_pseudo_unknown_experiments(
         )
 
     if plot_everything:
+        _emit_progress(
+            progress_callback,
+            stage="plotting",
+            message="Generating pseudo-unknown calibration plots",
+            fraction=0.95,
+        )
         if plot_output_dir is None:
             plot_output_dir = os.path.join(output_dir, "Plots")
         os.makedirs(plot_output_dir, exist_ok=True)
@@ -754,7 +806,7 @@ def run_pseudo_unknown_experiments(
         artifacts["margin_histogram_path"] = histogram_plot_path
         artifacts["threshold_plot_path"] = threshold_plot_path
 
-    return {
+    result = {
         "run_results": results_df,
         "hs_iterations": hs_iterations,
         "dihs_iterations": dihs_iterations,
@@ -773,3 +825,12 @@ def run_pseudo_unknown_experiments(
         "common_depth_level": common_depth_level,
         "artifacts": artifacts,
     }
+    _emit_progress(
+        progress_callback,
+        stage="complete",
+        message="Pseudo-unknown calibration complete",
+        fraction=1.0,
+        current=total_runs,
+        total=total_runs,
+    )
+    return result
