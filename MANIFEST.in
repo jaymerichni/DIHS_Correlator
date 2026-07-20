@@ -1,3 +1,5 @@
 include README.md
+recursive-include data *.csv *.svg
+recursive-include scripts *.py *.ipynb
 recursive-include src/DIHS_Correlator/web/templates *.html
 recursive-include src/DIHS_Correlator/web/static *.css *.js

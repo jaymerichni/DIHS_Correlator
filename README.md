@@ -32,7 +32,38 @@ After installation, `import DIHS_Correlator` works from any working directory.
 - `src/DIHS_Correlator/viz/`: plotting utilities for HS curves, pairwise matrices, and pseudo-unknown diagnostics.
 - `src/DIHS_Correlator/io/`: output-path and file-writing helpers.
 - `src/DIHS_Correlator/web/`: packaged Flask application, Jinja template, static front-end assets, and module entrypoint.
+- `data/Processed/`: processed reproducibility datasets for the synthetic validation scenarios and the Caio Italian benchmark.
+- `scripts/`: notebooks and scripts used to reproduce the main manuscript examples and benchmark workflows.
 - `pyproject.toml`: packaging metadata for editable and build installs.
+
+## Reproducibility Scripts
+
+The repository now includes the processed benchmark data and the analysis scripts used to reproduce the two main empirical parts of the manuscript:
+
+1. `scripts/1a_synthetic_scenario_gen.ipynb`
+- Generates the six two-dimensional synthetic scenarios discussed in the synthetic validation section and Supporting Text S3.
+- Writes the combined benchmark table and overview figure to `data/Processed/synthetic_scenarios/`.
+
+2. `scripts/1b_synthetic_scenario_comparison.py`
+- Benchmarks DIHS against the centroid-distance and Mahalanobis-distance baselines described in Supporting Text S2.
+- Repeats the comparison across the synthetic scenarios, the three clustering models (`agglomerative`, `kmeans`, `gaussian`), and a sweep of unknown sample sizes, matching the manuscript's sample-size sensitivity framing.
+- By default, reads `data/Processed/synthetic_scenarios/all_scenarios_combined.csv` and writes its benchmark outputs under `scripts/1_benchmarking_comparison/`.
+
+3. `scripts/2_caio_source_attribution.ipynb`
+- Reproduces the Italian benchmark case study centered on the Caio outcrop and the Roman Magmatic Province association.
+- Uses `data/Processed/caio_italy_benchmark/full_italian_data.csv` and runs the perturbative triple workflow plus pseudo-unknown resolvedness calibration discussed in the main text and Supporting Text S4.
+- Writes analysis outputs to `Results/2_caio_source_attribution/`.
+
+These scripts are intended to be run from this repository checkout. The notebooks and the benchmarking script resolve paths against the repository layout directly so the bundled `data/` and `scripts/` folders stay portable inside an archival snapshot.
+
+Typical usage from the repository root:
+
+```bash
+python -m pip install -e .
+python scripts/1b_synthetic_scenario_comparison.py
+```
+
+For the notebooks, open `scripts/1a_synthetic_scenario_gen.ipynb` and `scripts/2_caio_source_attribution.ipynb` in Jupyter or VS Code after the editable install.
 
 ## Analysis Modes
 
