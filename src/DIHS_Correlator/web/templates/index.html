@@ -11,7 +11,6 @@
     <section class="hero">
       <p class="meta">DIHS tephra analysis workspace</p>
       <h1>{{ app_title }}</h1>
-      <p>Upload a CSV dataset, choose a DIHS workflow, and inspect resolvedness summaries, run logs, and plots from the local Flask interface.</p>
       <p class="meta">
         Powered by DIHS_Correlator v{{ package_version }}
         {% if software_doi %}
@@ -303,7 +302,6 @@
           </div>
 
           <p id="job-message"><strong>Current task:</strong> {{ job.message }}</p>
-          <p class="job-note">Live progress is most detailed for perturbative and resolvedness workflows.</p>
 
           <details id="job-log-box" {% if job.logs %}open{% endif %}>
             <summary>Run log</summary>

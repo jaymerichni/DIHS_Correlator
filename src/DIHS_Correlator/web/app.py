@@ -686,6 +686,7 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "mode": mode,
+        "dataset_df": dataset_entry["df"].copy(),
         "common": common,
         "advanced": advanced,
         "form_state": form_state,
@@ -988,7 +989,7 @@ def _run_analysis_job(
         with redirect_stdout(stdout_buffer):
             result = _run_selected_mode(
                 parsed["mode"],
-                df,
+                parsed["dataset_df"].copy(),
                 parsed["common"],
                 parsed["advanced"],
                 progress_callback=progress_callback,

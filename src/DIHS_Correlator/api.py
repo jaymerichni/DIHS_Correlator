@@ -138,6 +138,7 @@ def perturbative_simple_run(
     save_untransformed: bool = False,
     verbose: bool = True,
     return_details: bool = False,
+    progress_callback=None,
 ):
     """Perturbative ensemble run for one model."""
     result = perturbative_simple_run_workflow(
@@ -165,6 +166,7 @@ def perturbative_simple_run(
         save_cluster_data=save_cluster_data,
         save_untransformed=save_untransformed,
         verbose=verbose,
+        progress_callback=progress_callback,
     )
     if return_details:
         return result
@@ -197,6 +199,7 @@ def perturbative_triple_run(
     save_untransformed: bool = False,
     verbose: bool = True,
     return_details: bool = False,
+    progress_callback=None,
 ):
     """Perturbative ensemble run for all three models."""
     result = perturbative_triple_run_workflow(
@@ -223,6 +226,7 @@ def perturbative_triple_run(
         save_cluster_data=save_cluster_data,
         save_untransformed=save_untransformed,
         verbose=verbose,
+        progress_callback=progress_callback,
     )
     if return_details:
         return result
@@ -389,6 +393,7 @@ def perturbative_triple_run_with_resolvedness(
     integration_depth: int | None = None,
     verbose: bool = True,
     return_details: bool = False,
+    progress_callback=None,
 ):
     """Run perturbative triple correlation plus Top-1 pseudo-unknown resolvedness calibration."""
     result = perturbative_triple_run_with_resolvedness_workflow(
@@ -421,6 +426,7 @@ def perturbative_triple_run_with_resolvedness(
         integration_depth=integration_depth,
         verbose=verbose,
         return_details=return_details,
+        progress_callback=progress_callback,
     )
     if return_details:
         return result

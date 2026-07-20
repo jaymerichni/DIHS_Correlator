@@ -361,6 +361,7 @@ def run_pseudo_unknown_experiments(
     output_dir: str = "./Results_pseudo_unknown",
     plot_output_dir: str | None = None,
     verbose: bool = True,
+    progress_callback=None,
 ):
     """
     Run positive and negative pseudo-unknown experiments for each eligible class.
@@ -430,9 +431,21 @@ def run_pseudo_unknown_experiments(
 
     hs_rows = []
     run_id_counter = 0
+    total_runs = len(eligible_classes) * int(n_iterations) * 2
+    completed_runs = 0
     if verbose:
         print(
             f"Running pseudo-unknown experiments | Classes: {len(eligible_classes)} | Sample size: {sample_size} | Iterations per class: {n_iterations}"
+        )
+    if progress_callback is not None:
+        progress_callback(
+            {
+                "stage": "pseudo_unknown",
+                "message": "Pseudo-unknown calibration",
+                "current": 0,
+                "total": total_runs,
+                "fraction": 0.0,
+            }
         )
 
     for source_class in eligible_classes:
@@ -482,6 +495,20 @@ def run_pseudo_unknown_experiments(
             hs_positive["true_source_present"] = True
             hs_rows.append(hs_positive)
             run_id_counter += 1
+            completed_runs += 1
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "stage": "pseudo_unknown",
+                        "message": (
+                            f"Pseudo-unknown calibration | {source_class} | "
+                            f"positive case {iteration + 1} of {int(n_iterations)}"
+                        ),
+                        "current": completed_runs,
+                        "total": total_runs,
+                        "fraction": completed_runs / float(total_runs),
+                    }
+                )
 
             negative_run = runner.run_combination(
                 data=negative_df,
@@ -504,6 +531,20 @@ def run_pseudo_unknown_experiments(
             hs_negative["true_source_present"] = False
             hs_rows.append(hs_negative)
             run_id_counter += 1
+            completed_runs += 1
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "stage": "pseudo_unknown",
+                        "message": (
+                            f"Pseudo-unknown calibration | {source_class} | "
+                            f"negative case {iteration + 1} of {int(n_iterations)}"
+                        ),
+                        "current": completed_runs,
+                        "total": total_runs,
+                        "fraction": completed_runs / float(total_runs),
+                    }
+                )
 
     hs_iterations = pd.concat(hs_rows, ignore_index=True) if hs_rows else pd.DataFrame()
     dihs_iterations_by_depth, common_depth_level = _recompute_dihs_for_all_depths(
@@ -753,6 +794,17 @@ def run_pseudo_unknown_experiments(
         artifacts["margin_plot_path"] = margin_plot_path
         artifacts["margin_histogram_path"] = histogram_plot_path
         artifacts["threshold_plot_path"] = threshold_plot_path
+
+    if progress_callback is not None:
+        progress_callback(
+            {
+                "stage": "complete",
+                "message": "Pseudo-unknown calibration complete",
+                "current": total_runs,
+                "total": total_runs,
+                "fraction": 1.0,
+            }
+        )
 
     return {
         "run_results": results_df,

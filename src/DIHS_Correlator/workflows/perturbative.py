@@ -20,6 +20,30 @@ from DIHS_Correlator.workflows.utils import (
 )
 
 
+def _emit_progress(
+    progress_callback,
+    *,
+    stage: str,
+    message: str | None = None,
+    current: int | None = None,
+    total: int | None = None,
+    fraction: float | None = None,
+) -> None:
+    if progress_callback is None:
+        return
+
+    payload: dict[str, Any] = {"stage": stage}
+    if message is not None:
+        payload["message"] = message
+    if current is not None:
+        payload["current"] = int(current)
+    if total is not None:
+        payload["total"] = int(total)
+    if fraction is not None:
+        payload["fraction"] = min(max(float(fraction), 0.0), 1.0)
+    progress_callback(payload)
+
+
 def _recompute_dihs_iterations_on_common_depth(
     hs_iterations: pd.DataFrame,
 ):
@@ -375,6 +399,7 @@ def perturbative_simple_run_workflow(
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
+    progress_callback=None,
 ):
     major_cols_resolved, trace_cols_resolved = _resolve_major_trace_columns(
         df, major_cols, trace_cols, class_column=class_column
@@ -395,8 +420,18 @@ def perturbative_simple_run_workflow(
     dihs_iters = []
     pairwise_depth_iterations = []
     artifacts = {"iteration_dirs": []}
+    total_iterations = int(n_iterations)
 
-    for it in range(n_iterations):
+    _emit_progress(
+        progress_callback,
+        stage="perturbative_iterations",
+        message=f"{model_type}: perturbative iterations",
+        current=0,
+        total=total_iterations,
+        fraction=0.0,
+    )
+
+    for it in range(total_iterations):
         perturbed = df.copy()
         if major_cols_resolved:
             x_major = perturbed[major_cols_resolved].to_numpy(dtype=float)
@@ -448,6 +483,14 @@ def perturbative_simple_run_workflow(
             pairwise_depth_iterations.append(run["pairwise_per_depth_matrices"])
         if verbose:
             _print_progress(it + 1, n_iterations)
+        _emit_progress(
+            progress_callback,
+            stage="perturbative_iterations",
+            message=f"{model_type}: perturbative iteration {it + 1} of {total_iterations}",
+            current=it + 1,
+            total=total_iterations,
+            fraction=(it + 1) / float(total_iterations),
+        )
 
     hs_iterations = pd.concat(hs_iters, ignore_index=True) if hs_iters else pd.DataFrame()
     dihs_iterations_native = (
@@ -566,6 +609,14 @@ def perturbative_simple_run_workflow(
         "artifacts": artifacts,
     }
     _log(verbose, "Perturbative run completed.")
+    _emit_progress(
+        progress_callback,
+        stage="complete",
+        message=f"{model_type}: perturbative run complete",
+        current=total_iterations,
+        total=total_iterations,
+        fraction=1.0,
+    )
     return result
 
 
@@ -594,10 +645,23 @@ def perturbative_triple_run_workflow(
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
+    progress_callback=None,
 ):
     model_results = {}
     _log(verbose, "Starting perturbative triple run...")
-    for model in SUPPORTED_MODELS:
+    total_models = len(SUPPORTED_MODELS)
+    total_iterations = max(int(n_iterations), 1)
+
+    _emit_progress(
+        progress_callback,
+        stage="perturbative_models",
+        message="Starting perturbative triple run",
+        current=0,
+        total=total_models * total_iterations,
+        fraction=0.0,
+    )
+
+    for model_index, model in enumerate(SUPPORTED_MODELS):
         _log(verbose, f"Model {model}:")
         model_out = os.path.join(output_dir, model) if write_files else output_dir
         model_plot_out = (
@@ -605,6 +669,31 @@ def perturbative_triple_run_workflow(
             if (plot_output_dir is not None and write_files)
             else plot_output_dir
         )
+
+        def _model_progress(payload: dict[str, Any], *, _model_index=model_index, _model=model):
+            local_total = int(payload.get("total", total_iterations) or total_iterations)
+            local_current = payload.get("current")
+            local_fraction = payload.get("fraction")
+            if local_fraction is None and local_current is not None and local_total:
+                local_fraction = float(local_current) / float(local_total)
+            if local_fraction is None:
+                local_fraction = 0.0
+            overall_fraction = (_model_index + min(max(float(local_fraction), 0.0), 1.0)) / float(
+                total_models
+            )
+            overall_current = None
+            overall_total = total_models * local_total
+            if local_current is not None:
+                overall_current = (_model_index * local_total) + int(local_current)
+            _emit_progress(
+                progress_callback,
+                stage=str(payload.get("stage", "perturbative_models")),
+                message=str(payload.get("message", f"{_model}: perturbative run")),
+                current=overall_current,
+                total=overall_total,
+                fraction=overall_fraction,
+            )
+
         model_results[model] = perturbative_simple_run_workflow(
             df=df,
             model_type=model,
@@ -630,6 +719,7 @@ def perturbative_triple_run_workflow(
             save_cluster_data=save_cluster_data,
             save_untransformed=save_untransformed,
             verbose=verbose,
+            progress_callback=_model_progress if progress_callback is not None else None,
         )
 
     hs_mean_all = pd.concat(
@@ -647,6 +737,14 @@ def perturbative_triple_run_workflow(
         ignore_index=True,
     ) if any(not model_results[m]["top1_frequency"].empty for m in SUPPORTED_MODELS) else pd.DataFrame(
         columns=["neighbor_unit", "wins", "top1_fraction", "n_iterations", "model"]
+    )
+    _emit_progress(
+        progress_callback,
+        stage="complete",
+        message="Perturbative triple run complete",
+        current=total_models * total_iterations,
+        total=total_models * total_iterations,
+        fraction=1.0,
     )
     return {
         "hs_mean_per_depth": hs_mean_all,

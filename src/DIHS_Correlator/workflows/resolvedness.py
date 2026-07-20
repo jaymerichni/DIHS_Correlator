@@ -47,6 +47,30 @@ from DIHS_Correlator.workflows.utils import (
 SUPPORTED_MODELS = ("agglomerative", "kmeans", "gaussian")
 
 
+def _emit_progress(
+    progress_callback,
+    *,
+    stage: str,
+    message: str | None = None,
+    current: int | None = None,
+    total: int | None = None,
+    fraction: float | None = None,
+) -> None:
+    if progress_callback is None:
+        return
+
+    payload: dict[str, Any] = {"stage": stage}
+    if message is not None:
+        payload["message"] = message
+    if current is not None:
+        payload["current"] = int(current)
+    if total is not None:
+        payload["total"] = int(total)
+    if fraction is not None:
+        payload["fraction"] = min(max(float(fraction), 0.0), 1.0)
+    progress_callback(payload)
+
+
 def _apply_perturbative_outputs_at_depth(
     perturbative_result: dict[str, Any],
     *,
@@ -85,6 +109,7 @@ def _run_pseudo_unknown_for_top1(
     write_files: bool,
     output_dir: str,
     verbose: bool,
+    progress_callback=None,
 ):
     top1_key = top1_candidate["top1_class_key"]
     top1_mask = _class_match_mask(pseudo_df[class_column], top1_candidate["top1_class"])
@@ -106,26 +131,32 @@ def _run_pseudo_unknown_for_top1(
         verbose,
         f"Model {model}: pseudo-unknown calibration on Top-1 class '{top1_candidate['top1_class']}'",
     )
-    pseudo_unknown_result = pseudo_unknown_run_fn(
-        df=pseudo_df,
-        model_type=model,
-        transform_type=transform_type,
-        class_column=class_column,
-        sample_size=pseudo_sample_size,
-        n_iterations=pseudo_unknown_iterations,
-        excluded_classes=excluded_classes,
-        random_state=pseudo_random_state,
-        max_depth=max_depth,
-        exclude_columns=exclude_columns,
-        target_precision=max(precision_targets),
-        reported_precisions=precision_targets,
-        min_runs_above_threshold=min_runs_above_threshold,
-        plot_everything=False,
-        write_files=write_files,
-        output_dir=output_dir,
-        plot_output_dir=None,
-        verbose=verbose,
-    )
+    pseudo_unknown_kwargs = {
+        "df": pseudo_df,
+        "model_type": model,
+        "transform_type": transform_type,
+        "class_column": class_column,
+        "sample_size": pseudo_sample_size,
+        "n_iterations": pseudo_unknown_iterations,
+        "excluded_classes": excluded_classes,
+        "random_state": pseudo_random_state,
+        "max_depth": max_depth,
+        "exclude_columns": exclude_columns,
+        "target_precision": max(precision_targets),
+        "reported_precisions": precision_targets,
+        "min_runs_above_threshold": min_runs_above_threshold,
+        "plot_everything": False,
+        "write_files": write_files,
+        "output_dir": output_dir,
+        "plot_output_dir": None,
+        "verbose": verbose,
+    }
+    if (
+        progress_callback is not None
+        and "progress_callback" in inspect.signature(pseudo_unknown_run_fn).parameters
+    ):
+        pseudo_unknown_kwargs["progress_callback"] = progress_callback
+    pseudo_unknown_result = pseudo_unknown_run_fn(**pseudo_unknown_kwargs)
     return pseudo_unknown_result, top1_source_count
 
 
@@ -160,6 +191,7 @@ def perturbative_triple_run_with_resolvedness_workflow(
     integration_depth: int | None = None,
     verbose: bool = True,
     return_details: bool = False,
+    progress_callback=None,
     # Optional function overrides for dependency injection.
     perturbative_simple_run_fn=None,
     pseudo_unknown_run_fn=None,
@@ -282,6 +314,8 @@ def perturbative_triple_run_with_resolvedness_workflow(
 
     summary_rows = []
     model_results = {}
+    total_models = len(SUPPORTED_MODELS)
+    perturbative_phase_fraction = 0.58
 
     _log(
         verbose,
@@ -292,7 +326,53 @@ def perturbative_triple_run_with_resolvedness_workflow(
         f"Unknown class resolved to: {unknown_class} | Pseudo-unknown sample size: {pseudo_sample_size}",
     )
 
-    for model in SUPPORTED_MODELS:
+    _emit_progress(
+        progress_callback,
+        stage="resolvedness",
+        message="Starting perturbative triple run with resolvedness calibration",
+        current=0,
+        total=total_models,
+        fraction=0.0,
+    )
+
+    def _make_model_phase_progress(
+        *,
+        model_index: int,
+        model_name: str,
+        phase_start: float,
+        phase_span: float,
+        default_stage: str,
+        default_message: str,
+    ):
+        if progress_callback is None:
+            return None
+
+        def _callback(payload: dict[str, Any]) -> None:
+            local_fraction = payload.get("fraction")
+            current = payload.get("current")
+            total = payload.get("total")
+            if local_fraction is None and current is not None and total:
+                local_fraction = float(current) / float(total)
+            if local_fraction is None:
+                local_fraction = 0.0
+            overall_fraction = (
+                model_index + phase_start + (phase_span * min(max(float(local_fraction), 0.0), 1.0))
+            ) / float(total_models)
+            message = str(payload.get("message", default_message))
+            if not message.lower().startswith(f"{model_name}:".lower()):
+                message = f"{model_name}: {message}"
+            _emit_progress(
+                progress_callback,
+                stage=str(payload.get("stage", default_stage)),
+                message=message,
+                current=current,
+                total=total,
+                fraction=overall_fraction,
+            )
+
+        return _callback
+
+    for model_index, model in enumerate(SUPPORTED_MODELS):
         _log(verbose, f"Model {model}: perturbative ensemble")
         model_root = os.path.join(output_dir, model)
         perturbative_output_dir = os.path.join(model_root, "perturbative")
@@ -335,6 +415,15 @@ def perturbative_triple_run_with_resolvedness_workflow(
             "verbose": verbose,
         }
         perturbative_params = inspect.signature(perturbative_simple_run_fn).parameters
+        if "progress_callback" in perturbative_params:
+            perturbative_kwargs["progress_callback"] = _make_model_phase_progress(
+                model_index=model_index,
+                model_name=model,
+                phase_start=0.0,
+                phase_span=perturbative_phase_fraction,
+                default_stage="perturbative_iterations",
+                default_message="Perturbative ensemble",
+            )
         if integration_depth is not None:
             if "integration_depth" in perturbative_params:
                 perturbative_kwargs["integration_depth"] = int(integration_depth)
@@ -386,6 +475,14 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 write_files=write_files,
                 output_dir=pseudo_output_dir,
                 verbose=verbose,
+                progress_callback=_make_model_phase_progress(
+                    model_index=model_index,
+                    model_name=model,
+                    phase_start=perturbative_phase_fraction,
+                    phase_span=1.0 - perturbative_phase_fraction,
+                    default_stage="pseudo_unknown",
+                    default_message="Pseudo-unknown calibration",
+                ),
             )
             pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
             if pseudo_common_depth is not None and chosen_depth > int(pseudo_common_depth):
@@ -414,7 +511,8 @@ def perturbative_triple_run_with_resolvedness_workflow(
             pseudo_unknown_result = None
             top1_source_count = None
             stable_alignment = False
-            for _ in range(6):
+            max_alignment_attempts = 6
+            for attempt_index in range(max_alignment_attempts):
                 pseudo_unknown_result, top1_source_count = _run_pseudo_unknown_for_top1(
                     pseudo_unknown_run_fn=pseudo_unknown_run_fn,
                     pseudo_df=pseudo_df,
@@ -432,6 +530,19 @@ def perturbative_triple_run_with_resolvedness_workflow(
                     write_files=write_files,
                     output_dir=pseudo_output_dir,
                     verbose=verbose,
+                    progress_callback=_make_model_phase_progress(
+                        model_index=model_index,
+                        model_name=model,
+                        phase_start=perturbative_phase_fraction
+                        + ((1.0 - perturbative_phase_fraction) * (attempt_index / float(max_alignment_attempts))),
+                        phase_span=(1.0 - perturbative_phase_fraction)
+                        / float(max_alignment_attempts),
+                        default_stage="pseudo_unknown",
+                        default_message=(
+                            f"Pseudo-unknown calibration attempt {attempt_index + 1} "
+                            f"of {max_alignment_attempts}"
+                        ),
+                    ),
                 )
                 pseudo_common_depth = pseudo_unknown_result["common_depth_level"]
                 available_depths = [
@@ -718,6 +829,14 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 "artifacts": resolvedness_artifacts,
             },
         }
+        _emit_progress(
+            progress_callback,
+            stage="resolvedness_model_complete",
+            message=f"{model}: resolvedness calibration complete",
+            current=model_index + 1,
+            total=total_models,
+            fraction=(model_index + 1) / float(total_models),
+        )
 
     summary_df = pd.DataFrame(summary_rows)
     root_artifacts = {}
@@ -737,6 +856,14 @@ def perturbative_triple_run_with_resolvedness_workflow(
         "target_precisions": precision_targets,
         "artifacts": root_artifacts,
     }
+    _emit_progress(
+        progress_callback,
+        stage="complete",
+        message="Resolvedness workflow complete",
+        current=total_models,
+        total=total_models,
+        fraction=1.0,
+    )
     if return_details:
         return out
     return out["summary"]
