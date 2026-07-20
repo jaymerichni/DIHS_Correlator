@@ -9,6 +9,7 @@ description = "DIHS-based tephra correlation package."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "flask",
     "matplotlib",
     "numpy",
     "pandas",

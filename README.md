@@ -8,7 +8,7 @@ The repository implements:
 - perturbative uncertainty propagation,
 - pseudo-unknown resolvedness calibration,
 - post-hoc reporting and visualization from saved outputs,
-- a local Flask interface for browser-based analysis.
+- a packaged local Flask interface for browser-based analysis.
 
 ## Scientific Scope
 
@@ -31,8 +31,7 @@ After installation, `import DIHS_Correlator` works from any working directory.
 - `src/DIHS_Correlator/workflows/`: orchestration logic for complete analyses.
 - `src/DIHS_Correlator/viz/`: plotting utilities for HS curves, pairwise matrices, and pseudo-unknown diagnostics.
 - `src/DIHS_Correlator/io/`: output-path and file-writing helpers.
-- `src/DIHS_Correlator/web/`: packaged Flask application, Jinja template, and static front-end assets.
-- `app.py`: thin source-checkout launcher that preserves the `python app.py` workflow.
+- `src/DIHS_Correlator/web/`: packaged Flask application, Jinja template, static front-end assets, and module entrypoint.
 - `pyproject.toml`: packaging metadata for editable and build installs.
 
 ## Analysis Modes
@@ -97,17 +96,29 @@ hs_per_depth = simple_run(
 
 ## Graphical Interface
 
-This repository includes a Flask app for running the main workflows from a browser.
+This repository includes a packaged Flask app for running the main workflows from a browser.
 
 ```bash
 python -m pip install -e .
-python app.py
+dihs-tephra-correlator
 ```
 
-The app starts a local server on `http://127.0.0.1:5000` by default. It lets you
-upload a CSV file, choose one of `simple_run`, `triple_run`, or
-`perturbative_triple_run_with_resolvedness`, configure the relevant arguments,
-and inspect or download the returned tables, plots, and saved artifacts.
+An equivalent module-based launch command is also available:
+
+```bash
+python -m DIHS_Correlator.web
+```
+
+The app starts a local server on `http://127.0.0.1:5000` by default. It currently exposes:
+- `simple_run`
+- `triple_run`
+- `perturbative_simple_run`
+- `perturbative_triple_run`
+- `perturbative_triple_run_with_resolvedness`
+
+The browser UI is designed for local, single-user runs. It provides progress tracking for perturbative and resolvedness workflows, collapsible result sections, and a zoom/pan plot viewer. Relative output directories entered in the form are resolved from the directory where you launch the app.
+
+If you want the banner to show the archived DOI after a Zenodo release, start the app with `DIHS_CORRELATOR_SOFTWARE_DOI` set in the environment.
 
 ## Input Expectations
 

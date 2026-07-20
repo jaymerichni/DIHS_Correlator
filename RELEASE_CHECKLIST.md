@@ -6,7 +6,7 @@ Use this checklist before creating the Zenodo-linked archival release or submitt
 
 - Run `python -m pip install -e .` from a clean environment.
 - Start the local interface with `dihs-tephra-correlator` and confirm the home page loads.
-- Confirm `python app.py` still works from a source checkout.
+- Confirm `python -m DIHS_Correlator.web` also starts the same local interface.
 - Build a wheel with `python -m pip wheel . --no-deps --no-build-isolation -w dist_check`.
 - Verify the wheel contains `DIHS_Correlator/web/templates/index.html`, `DIHS_Correlator/web/static/app.css`, and `DIHS_Correlator/web/static/app.js`.
 
