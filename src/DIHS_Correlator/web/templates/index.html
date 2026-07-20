@@ -116,7 +116,7 @@
             <label>
               Random state
               <input type="number" name="random_state" min="0" step="1" value="{{ form_state.random_state }}">
-              <small>Only applied when the checkbox below is enabled.</small>
+              <small>Only applied when the checkbox "Use random state" is enabled.</small>
             </label>
 
             <label class="inline-check">
@@ -288,16 +288,6 @@
             <div class="job-stat">
               <strong>Stage</strong>
               <span id="job-stage">{{ job.stage or "queued" }}</span>
-            </div>
-            <div class="job-stat">
-              <strong>Counter</strong>
-              <span id="job-counter">
-                {% if job.current is not none and job.total is not none %}
-                  {{ job.current }} / {{ job.total }}
-                {% else %}
-                  Waiting for first update
-                {% endif %}
-              </span>
             </div>
           </div>
 

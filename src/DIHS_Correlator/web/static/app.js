@@ -99,7 +99,6 @@ function setupJobPolling() {
   const jobStatus = document.getElementById("job-status");
   const jobProgress = document.getElementById("job-progress");
   const jobStage = document.getElementById("job-stage");
-  const jobCounter = document.getElementById("job-counter");
   const jobMessage = document.getElementById("job-message");
   const jobLogs = document.getElementById("job-logs");
   const jobLogBox = document.getElementById("job-log-box");
@@ -121,10 +120,6 @@ function setupJobPolling() {
         .replace(/\b\w/g, (char) => char.toUpperCase());
       jobProgress.textContent = `${payload.progress_percent}%`;
       jobStage.textContent = payload.stage || "running";
-      jobCounter.textContent =
-        payload.current !== null && payload.total !== null
-          ? `${payload.current} / ${payload.total}`
-          : "Working";
       jobMessage.innerHTML = `<strong>Current task:</strong> ${payload.message || "Working"}`;
 
       if (payload.logs) {

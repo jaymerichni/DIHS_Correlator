@@ -97,6 +97,38 @@ PLOT_SUFFIXES = {".svg", ".png", ".jpg", ".jpeg"}
 CACHE_TTL_SECONDS = 6 * 60 * 60
 APP_TITLE = "DIHS Tephra Correlator"
 SOFTWARE_DOI_ENV = "DIHS_CORRELATOR_SOFTWARE_DOI"
+TABLE_LABEL_OVERRIDES = {
+    "hs_per_depth": "HS Per-Depth Table",
+    "dihs_total": "DIHS Summary",
+    "hs_mean_per_depth": "Mean HS Per-Depth Table",
+    "dihs_summary": "Perturbative DIHS Summary",
+    "top1_frequency": "Top-1 Frequency Summary",
+    "margin_summary": "Margin Summary",
+    "pairwise_total_matrix": "Pairwise Total Matrix",
+    "pairwise_total_mean_matrix": "Mean Pairwise Matrix",
+    "thresholds_by_target_precision": "Thresholds By Target Precision",
+    "perturbative_calibration_summary": "Perturbative Calibration Summary",
+    "perturbative_regime_summary": "Perturbative Regime Summary",
+}
+PLOT_LABEL_OVERRIDES = {
+    "hs_curve_path": "HS Curve",
+    "pairwise_total_plot_path": "Pairwise DIHS Matrix",
+    "mean_hs_curve_path": "Mean HS Curve",
+    "top1_fraction_plot_path": "Top-1 Frequency Plot",
+    "pairwise_total_mean_plot_path": "Mean Pairwise DIHS Matrix",
+    "margin_plot_path": "Pseudo-Unknown Margin Comparison",
+    "margin_histogram_path": "Pseudo-Unknown Margin Histogram",
+    "threshold_plot_path": "Threshold Diagnostics",
+    "margin_comparison_plot_path": "Resolvedness Margin Comparison",
+    "calibration_overlay_plot_path": "Resolvedness Calibration Overlay",
+    "output_path": "Plot",
+    "plot_output_path": "Plot",
+}
+PATH_PART_LABEL_OVERRIDES = {
+    "agglomerative": "Agglomerative",
+    "kmeans": "KMeans",
+    "gaussian": "Gaussian",
+}
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.environ.get("DIHS_CORRELATOR_FLASK_SECRET", secrets.token_hex(32))
@@ -694,13 +726,17 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _display_part_label(part: str) -> str:
+    return PATH_PART_LABEL_OVERRIDES.get(part, TABLE_LABEL_OVERRIDES.get(part, part.replace("_", " ").title()))
+
+
 def _format_label(parts: tuple[str, ...]) -> str:
     cleaned = []
     for part in parts:
         if part.isdigit():
             cleaned.append(f"Item {int(part) + 1}")
         else:
-            cleaned.append(part.replace("_", " ").title())
+            cleaned.append(_display_part_label(part))
     return " / ".join(cleaned)
 
 
@@ -726,6 +762,15 @@ def _table_label_for_path(root_value: Any, path: tuple[str, ...]) -> str:
         return "Resolvedness Summary"
     if path[-1] == "resolvedness_summary" and len(path) >= 2 and path[0] == "models":
         return f"{path[1].title()} Resolvedness Summary"
+    if path[-1] in {"dihs_total", "dihs_summary"} and len(path) >= 3 and path[0] == "models":
+        return f"{path[1].title()} {TABLE_LABEL_OVERRIDES[path[-1]]}"
+    if (
+        path[-1] in {"dihs_total", "dihs_summary"}
+        and len(path) == 1
+        and isinstance(root_value, dict)
+        and "models" in root_value
+    ):
+        return f"Combined {TABLE_LABEL_OVERRIDES[path[-1]]}"
     return _format_label(path)
 
 
@@ -733,6 +778,32 @@ def _normalize_table_for_display(key: str, df: pd.DataFrame) -> pd.DataFrame:
     if key in {"pairwise_total_matrix", "pairwise_total_mean_matrix"}:
         return df.reset_index()
     return df
+
+
+def _plot_label_for_path(path: tuple[str, ...], file_path: Path) -> str:
+    if not path:
+        return file_path.stem.replace("_", " ").title()
+
+    meaningful_path = tuple(part for part in path if part != "artifacts")
+    if not meaningful_path:
+        return file_path.stem.replace("_", " ").title()
+
+    plot_key = meaningful_path[-1]
+    label = PLOT_LABEL_OVERRIDES.get(plot_key)
+    if label is None:
+        return _format_label(meaningful_path)
+
+    if len(meaningful_path) >= 3 and meaningful_path[0] == "models":
+        return f"{_display_part_label(meaningful_path[1])} {label}"
+    return label
+
+
+def _should_collect_table(root_value: Any, path: tuple[str, ...]) -> bool:
+    if not path or path[-1] not in DISPLAY_TABLE_KEYS:
+        return False
+    if path[-1] in {"summary", "resolvedness_summary"}:
+        return _is_resolvedness_summary_path(root_value, path)
+    return True
 
 
 def _collect_tables(
@@ -746,9 +817,9 @@ def _collect_tables(
     if root_value is None:
         root_value = value
     if isinstance(value, pd.DataFrame):
-        if path and path[-1] in DISPLAY_TABLE_KEYS and _is_resolvedness_summary_path(root_value, path):
+        if _should_collect_table(root_value, path):
             table_df = _normalize_table_for_display(path[-1], value)
-            if not table_df.empty:
+            if not table_df.empty and _is_resolvedness_summary_path(root_value, path):
                 keep_columns = [
                     column
                     for column in table_df.columns
@@ -800,11 +871,10 @@ def _collect_plot_paths(
             resolved = file_path.resolve()
             if resolved not in seen:
                 seen.add(resolved)
-                label = _format_label(path) if path else file_path.stem.replace("_", " ").title()
                 collected.append(
                     {
                         "path": resolved,
-                        "label": f"{label} ({file_path.name})",
+                        "label": _plot_label_for_path(path, file_path),
                         "name": file_path.name,
                     }
                 )
