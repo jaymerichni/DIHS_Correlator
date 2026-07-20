@@ -1,17 +1,22 @@
-"""Streamlit interface for the DIHS Correlator public API."""
+"""Flask interface for the DIHS Correlator public API."""
 
 from __future__ import annotations
 
 import io
+import json
 import os
+import secrets
+import shutil
 import sys
+import tempfile
+import time
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pandas as pd
-import streamlit as st
-import streamlit.components.v1 as components
+from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -34,10 +39,55 @@ MODE_OPTIONS = [
     "triple_run",
     "perturbative_triple_run_with_resolvedness",
 ]
+DEFAULT_OUTPUT_DIRS = {
+    "simple_run": "./Results",
+    "triple_run": "./Results_triple",
+    "perturbative_triple_run_with_resolvedness": "./Results_perturbative_triple_resolvedness",
+}
+DISPLAY_TABLE_KEYS = {
+    "hs_per_depth",
+    "dihs_total",
+    "summary",
+    "top1_candidate_summary",
+    "resolvedness_summary",
+    "pairwise_total_matrix",
+    "hs_mean_per_depth",
+    "dihs_summary",
+    "top1_frequency",
+    "margin_summary",
+    "thresholds_by_target_precision",
+    "perturbative_calibration_summary",
+    "perturbative_regime_summary",
+    "pairwise_total_mean_matrix",
+}
+PLOT_SUFFIXES = {".svg", ".png", ".jpg", ".jpeg"}
+CACHE_TTL_SECONDS = 6 * 60 * 60
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("DIHS_CORRELATOR_FLASK_SECRET", secrets.token_hex(32))
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
+
+CACHE_ROOT = Path(tempfile.gettempdir()) / "dihs_correlator_flask"
+CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+
+DATASET_CACHE: dict[str, dict[str, Any]] = {}
+RESULT_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _sorted_values(values: pd.Series) -> list[Any]:
-    return sorted(values.dropna().unique().tolist(), key=lambda value: str(value))
+    return sorted(
+        (_to_python_scalar(value) for value in values.dropna().unique().tolist()),
+        key=lambda value: str(value),
+    )
+
+
+def _to_python_scalar(value: Any) -> Any:
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except ValueError:
+            return value
+    return value
 
 
 def _parse_optional_int(value: str) -> int | None:
@@ -58,127 +108,237 @@ def _read_uploaded_csv(uploaded_file) -> pd.DataFrame:
     return pd.read_csv(uploaded_file)
 
 
-def _download_dataframe(label: str, df: pd.DataFrame, file_name: str):
-    csv_data = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label=label,
-        data=csv_data,
-        file_name=file_name,
-        mime="text/csv",
-        use_container_width=True,
-    )
+def _resolve_user_path(value: str) -> str:
+    user_path = value.strip()
+    if not user_path:
+        return ""
+    path = Path(user_path)
+    if not path.is_absolute():
+        path = ROOT / path
+    return str(path.resolve())
 
 
-def _show_dataframe(name: str, value: pd.DataFrame):
-    st.subheader(name.replace("_", " ").title())
-    st.dataframe(value, use_container_width=True)
-    _download_dataframe(f"Download {name}.csv", value, f"{name}.csv")
-
-
-def _show_artifacts(artifacts: dict[str, Any]):
-    if not artifacts:
-        return
-    st.subheader("Saved Artifacts")
-    for key, value in artifacts.items():
-        st.write(f"**{key}**")
-        st.write(value)
-
-
-def _collect_plot_paths(value: Any) -> list[Path]:
-    paths: list[Path] = []
-
-    def visit(item: Any):
-        if isinstance(item, pd.DataFrame):
-            return
-        if isinstance(item, dict):
-            for nested in item.values():
-                visit(nested)
-            return
-        if isinstance(item, (list, tuple, set)):
-            for nested in item:
-                visit(nested)
-            return
-        if isinstance(item, (str, os.PathLike)):
-            path = Path(item)
-            if path.suffix.lower() in {".svg", ".png", ".jpg", ".jpeg"} and path.exists():
-                paths.append(path)
-
-    visit(value)
-
-    unique_paths = []
-    seen = set()
-    for path in paths:
-        resolved = path.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            unique_paths.append(path)
-    return unique_paths
-
-
-def _show_plot_file(path: Path):
-    st.write(f"**{path.name}**")
-    if path.suffix.lower() == ".svg":
-        components.html(path.read_text(encoding="utf-8"), height=560, scrolling=True)
-    else:
-        st.image(str(path), use_container_width=True)
-
-
-def _show_plots(result: Any):
-    plot_paths = _collect_plot_paths(result)
-    if not plot_paths:
-        return
-
-    st.subheader("Plots")
-    tabs = st.tabs([path.stem[:40] for path in plot_paths])
-    for tab, path in zip(tabs, plot_paths):
-        with tab:
-            _show_plot_file(path)
-
-
-def _show_result(result: Any):
-    if isinstance(result, pd.DataFrame):
-        _show_dataframe("result", result)
-        return
-
-    if not isinstance(result, dict):
-        st.write(result)
-        return
-
-    preferred_tables = [
-        "hs_per_depth",
-        "dihs_total",
-        "summary",
-        "top1_candidate_summary",
-        "resolvedness_summary",
+def _cleanup_cache() -> None:
+    cutoff = time.time() - CACHE_TTL_SECONDS
+    expired_dataset_ids = [
+        dataset_id
+        for dataset_id, entry in DATASET_CACHE.items()
+        if entry["updated_at"] < cutoff
     ]
-    shown = set()
-    for key in preferred_tables:
-        value = result.get(key)
-        if isinstance(value, pd.DataFrame):
-            _show_dataframe(key, value)
-            shown.add(key)
+    for dataset_id in expired_dataset_ids:
+        DATASET_CACHE.pop(dataset_id, None)
 
-    pairwise = result.get("pairwise_total_matrix")
-    if isinstance(pairwise, pd.DataFrame):
-        _show_dataframe("pairwise_total_matrix", pairwise.reset_index())
-        shown.add("pairwise_total_matrix")
+    expired_result_ids = [
+        result_id
+        for result_id, entry in RESULT_CACHE.items()
+        if entry["updated_at"] < cutoff
+    ]
+    for result_id in expired_result_ids:
+        entry = RESULT_CACHE.pop(result_id, None)
+        temp_root = entry.get("temp_root") if entry else None
+        if temp_root:
+            shutil.rmtree(temp_root, ignore_errors=True)
 
-    _show_artifacts(result.get("artifacts", {}))
-    shown.add("artifacts")
 
-    _show_plots(result)
+@app.before_request
+def _before_request() -> None:
+    _cleanup_cache()
 
-    remaining = {
-        key: value
-        for key, value in result.items()
-        if key not in shown and not isinstance(value, pd.DataFrame)
+
+def _build_unknown_value_maps(
+    df: pd.DataFrame,
+) -> tuple[dict[str, list[dict[str, str]]], dict[str, dict[str, Any]]]:
+    option_map: dict[str, list[dict[str, str]]] = {}
+    value_map: dict[str, dict[str, Any]] = {}
+    for column in df.columns:
+        options = []
+        values = {}
+        for index, value in enumerate(_sorted_values(df[column])):
+            token = f"{column}::{index}"
+            options.append({"token": token, "label": str(value)})
+            values[token] = value
+        option_map[column] = options
+        value_map[column] = values
+    return option_map, value_map
+
+
+def _default_form_state(dataset_entry: dict[str, Any]) -> dict[str, Any]:
+    columns = dataset_entry["columns"]
+    class_column = "controlcode" if "controlcode" in columns else columns[0]
+    unknown_options = dataset_entry["unknown_options"].get(class_column, [])
+    unknown_token = unknown_options[0]["token"] if unknown_options else ""
+    return {
+        "mode": "simple_run",
+        "class_column": class_column,
+        "unknown_sample_token": unknown_token,
+        "transform_type": "clr",
+        "max_depth": 100,
+        "seed_enabled": False,
+        "random_state": 42,
+        "compute_pairwise": True,
+        "plot_everything": False,
+        "write_files": False,
+        "exclude_columns": [],
+        "output_dir": DEFAULT_OUTPUT_DIRS["simple_run"],
+        "plot_output_dir": "",
+        "save_cluster_data": False,
+        "save_untransformed": False,
+        "model_type": MODEL_OPTIONS[0],
+        "n_iterations": 100,
+        "major_error": 0.02,
+        "trace_error": 0.10,
+        "perturbation_seed_text": "",
+        "integration_depth_text": "",
+        "pseudo_unknown_iterations": 100,
+        "pseudo_unknown_sample_size_text": "",
+        "pseudo_unknown_random_state_text": "",
+        "target_precisions_text": "",
+        "min_runs_above_threshold": 1,
+        "major_cols": [],
+        "trace_cols": [],
     }
-    if remaining:
-        with st.expander("Additional result details"):
-            st.write(remaining)
 
 
-def _run_selected_mode(mode: str, df: pd.DataFrame, common: dict[str, Any], advanced: dict[str, Any]):
+def _build_dataset_entry(df: pd.DataFrame, filename: str) -> dict[str, Any]:
+    unknown_options, unknown_lookup = _build_unknown_value_maps(df)
+    dataset_id = uuid4().hex
+    entry = {
+        "id": dataset_id,
+        "filename": filename,
+        "df": df,
+        "rows": int(len(df)),
+        "columns_count": int(len(df.columns)),
+        "columns": df.columns.tolist(),
+        "numeric_columns": df.select_dtypes(include="number").columns.tolist(),
+        "preview_html": df.head(50).to_html(
+            index=False,
+            border=0,
+            classes=["dataframe", "preview-table"],
+            na_rep="",
+        ),
+        "unknown_options": unknown_options,
+        "unknown_lookup": unknown_lookup,
+        "updated_at": time.time(),
+    }
+    DATASET_CACHE[dataset_id] = entry
+    return entry
+
+
+def _get_dataset_entry(dataset_id: str | None) -> dict[str, Any] | None:
+    if not dataset_id:
+        return None
+    entry = DATASET_CACHE.get(dataset_id)
+    if entry is not None:
+        entry["updated_at"] = time.time()
+    return entry
+
+
+def _get_result_entry(result_id: str | None) -> dict[str, Any] | None:
+    if not result_id:
+        return None
+    entry = RESULT_CACHE.get(result_id)
+    if entry is not None:
+        entry["updated_at"] = time.time()
+    return entry
+
+
+def _bool_from_form(name: str) -> bool:
+    return request.form.get(name) == "on"
+
+
+def _validate_columns(selected: list[str], allowed: list[str], field_name: str) -> list[str]:
+    allowed_set = set(allowed)
+    invalid = [value for value in selected if value not in allowed_set]
+    if invalid:
+        raise ValueError(f"Invalid {field_name}: {', '.join(invalid)}")
+    return selected
+
+
+def _form_state_from_request(dataset_entry: dict[str, Any]) -> dict[str, Any]:
+    state = _default_form_state(dataset_entry)
+    state.update(
+        {
+            "mode": request.form.get("mode", state["mode"]).strip(),
+            "class_column": request.form.get("class_column", state["class_column"]).strip(),
+            "unknown_sample_token": request.form.get(
+                "unknown_sample",
+                state["unknown_sample_token"],
+            ).strip(),
+            "transform_type": request.form.get(
+                "transform_type",
+                state["transform_type"],
+            ).strip(),
+            "max_depth": request.form.get("max_depth", str(state["max_depth"])).strip(),
+            "seed_enabled": _bool_from_form("seed_enabled"),
+            "random_state": request.form.get(
+                "random_state",
+                str(state["random_state"]),
+            ).strip(),
+            "compute_pairwise": _bool_from_form("compute_pairwise"),
+            "plot_everything": _bool_from_form("plot_everything"),
+            "write_files": _bool_from_form("write_files"),
+            "exclude_columns": request.form.getlist("exclude_columns"),
+            "output_dir": request.form.get("output_dir", state["output_dir"]).strip(),
+            "plot_output_dir": request.form.get(
+                "plot_output_dir",
+                state["plot_output_dir"],
+            ).strip(),
+            "save_cluster_data": _bool_from_form("save_cluster_data"),
+            "save_untransformed": _bool_from_form("save_untransformed"),
+            "model_type": request.form.get("model_type", state["model_type"]).strip(),
+            "n_iterations": request.form.get(
+                "n_iterations",
+                str(state["n_iterations"]),
+            ).strip(),
+            "major_error": request.form.get(
+                "major_error",
+                str(state["major_error"]),
+            ).strip(),
+            "trace_error": request.form.get(
+                "trace_error",
+                str(state["trace_error"]),
+            ).strip(),
+            "perturbation_seed_text": request.form.get(
+                "perturbation_seed",
+                state["perturbation_seed_text"],
+            ).strip(),
+            "integration_depth_text": request.form.get(
+                "integration_depth",
+                state["integration_depth_text"],
+            ).strip(),
+            "pseudo_unknown_iterations": request.form.get(
+                "pseudo_unknown_iterations",
+                str(state["pseudo_unknown_iterations"]),
+            ).strip(),
+            "pseudo_unknown_sample_size_text": request.form.get(
+                "pseudo_unknown_sample_size",
+                state["pseudo_unknown_sample_size_text"],
+            ).strip(),
+            "pseudo_unknown_random_state_text": request.form.get(
+                "pseudo_unknown_random_state",
+                state["pseudo_unknown_random_state_text"],
+            ).strip(),
+            "target_precisions_text": request.form.get(
+                "target_precisions",
+                state["target_precisions_text"],
+            ).strip(),
+            "min_runs_above_threshold": request.form.get(
+                "min_runs_above_threshold",
+                str(state["min_runs_above_threshold"]),
+            ).strip(),
+            "major_cols": request.form.getlist("major_cols"),
+            "trace_cols": request.form.getlist("trace_cols"),
+        }
+    )
+    return state
+
+
+def _run_selected_mode(
+    mode: str,
+    df: pd.DataFrame,
+    common: dict[str, Any],
+    advanced: dict[str, Any],
+):
     if mode == "simple_run":
         return simple_run(
             df=df,
@@ -213,255 +373,548 @@ def _run_selected_mode(mode: str, df: pd.DataFrame, common: dict[str, Any], adva
     )
 
 
-def main():
-    st.set_page_config(page_title="DIHS Correlator", layout="wide")
-    st.title("DIHS Correlator")
+def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
+    columns = dataset_entry["columns"]
+    numeric_columns = dataset_entry["numeric_columns"]
+    mode = request.form.get("mode", "simple_run").strip()
+    if mode not in MODE_OPTIONS:
+        raise ValueError(f"Unsupported mode: {mode}")
 
-    uploaded_file = st.file_uploader("Upload a CSV dataset", type=["csv"])
-    if uploaded_file is None:
-        st.info("Upload a CSV file to configure and run an analysis.")
-        return
+    class_column = request.form.get("class_column", "").strip()
+    if class_column not in columns:
+        raise ValueError("Pick a valid class column.")
 
-    try:
-        df = _read_uploaded_csv(uploaded_file)
-    except Exception as exc:
-        st.error(f"Could not read CSV: {exc}")
-        return
+    unknown_token = request.form.get("unknown_sample", "").strip()
+    unknown_lookup = dataset_entry["unknown_lookup"].get(class_column, {})
+    if unknown_token not in unknown_lookup:
+        raise ValueError("Pick an unknown sample/class from the selected class column.")
+    unknown_sample = unknown_lookup[unknown_token]
 
-    st.subheader("Data Preview")
-    st.dataframe(df.head(50), use_container_width=True)
-    st.caption(f"{len(df):,} rows x {len(df.columns):,} columns")
+    transform_type = request.form.get("transform_type", "clr").strip()
+    if transform_type not in TRANSFORM_OPTIONS:
+        raise ValueError(f"Unsupported transform: {transform_type}")
 
-    numeric_columns = df.select_dtypes(include="number").columns.tolist()
+    max_depth = int(request.form.get("max_depth", "100"))
+    random_state = int(request.form.get("random_state", "42"))
+    seed_enabled = _bool_from_form("seed_enabled")
+    compute_pairwise = _bool_from_form("compute_pairwise")
+    plot_everything = _bool_from_form("plot_everything")
+    write_files = _bool_from_form("write_files")
+    save_cluster_data = _bool_from_form("save_cluster_data")
+    save_untransformed = _bool_from_form("save_untransformed")
+    exclude_columns = _validate_columns(
+        request.form.getlist("exclude_columns"),
+        columns,
+        "exclude columns",
+    )
+    output_dir_text = request.form.get("output_dir", DEFAULT_OUTPUT_DIRS[mode]).strip()
+    plot_output_dir_text = request.form.get("plot_output_dir", "").strip()
 
-    with st.form("run_form"):
-        st.subheader("Analysis")
-        mode = st.selectbox("Run mode", MODE_OPTIONS)
+    form_state = {
+        "mode": mode,
+        "class_column": class_column,
+        "unknown_sample_token": unknown_token,
+        "transform_type": transform_type,
+        "max_depth": max_depth,
+        "seed_enabled": seed_enabled,
+        "random_state": random_state,
+        "compute_pairwise": compute_pairwise,
+        "plot_everything": plot_everything,
+        "write_files": write_files,
+        "exclude_columns": exclude_columns,
+        "output_dir": output_dir_text,
+        "plot_output_dir": plot_output_dir_text,
+        "save_cluster_data": save_cluster_data,
+        "save_untransformed": save_untransformed,
+        "model_type": request.form.get("model_type", MODEL_OPTIONS[0]).strip(),
+        "n_iterations": int(request.form.get("n_iterations", "100")),
+        "major_error": float(request.form.get("major_error", "0.02")),
+        "trace_error": float(request.form.get("trace_error", "0.10")),
+        "perturbation_seed_text": request.form.get("perturbation_seed", "").strip(),
+        "integration_depth_text": request.form.get("integration_depth", "").strip(),
+        "pseudo_unknown_iterations": int(
+            request.form.get("pseudo_unknown_iterations", "100")
+        ),
+        "pseudo_unknown_sample_size_text": request.form.get(
+            "pseudo_unknown_sample_size", ""
+        ).strip(),
+        "pseudo_unknown_random_state_text": request.form.get(
+            "pseudo_unknown_random_state", ""
+        ).strip(),
+        "target_precisions_text": request.form.get("target_precisions", "").strip(),
+        "min_runs_above_threshold": int(
+            request.form.get("min_runs_above_threshold", "1")
+        ),
+        "major_cols": _validate_columns(
+            request.form.getlist("major_cols"),
+            numeric_columns,
+            "major columns",
+        ),
+        "trace_cols": _validate_columns(
+            request.form.getlist("trace_cols"),
+            numeric_columns,
+            "trace columns",
+        ),
+    }
 
-        left, right = st.columns(2)
-        with left:
-            class_default = (
-                df.columns.get_loc("controlcode")
-                if "controlcode" in df.columns
-                else 0
-            )
-            class_column = st.selectbox(
-                "Class column",
-                df.columns.tolist(),
-                index=int(class_default),
-            )
-            unknown_options = _sorted_values(df[class_column])
-            unknown_sample = st.selectbox("Unknown sample/class", unknown_options)
-            transform_type = st.selectbox("Transform", TRANSFORM_OPTIONS)
-            max_depth = st.number_input("Max depth", min_value=1, value=100, step=1)
-
-        with right:
-            seed_enabled = st.checkbox("Set random state", value=False)
-            random_state = st.number_input(
-                "Random state",
-                min_value=0,
-                value=42,
-                step=1,
-                help="Editable at all times. It is only passed to the analysis when Set random state is checked.",
-            )
-            compute_pairwise = st.checkbox("Compute pairwise matrices", value=True)
-            plot_everything = st.checkbox("Create plots", value=False)
-            write_files = st.checkbox("Write output files", value=False)
-
-        exclude_columns = st.multiselect(
-            "Exclude columns from numeric features",
-            df.columns.tolist(),
-            default=[],
-        )
-
-        output_dir = st.text_input(
-            "Output directory",
-            value={
-                "simple_run": "./Results",
-                "triple_run": "./Results_triple",
-                "perturbative_triple_run_with_resolvedness": "./Results_perturbative_triple_resolvedness",
-            }[mode],
-            help="Used when Write output files is checked. Plot output defaults are based on this path.",
-        )
-
-        plot_output_dir_text = st.text_input(
-            "Plot output directory (blank uses default)",
-            value="",
-            help="Used when Create plots is checked.",
-        )
-
-        save_cluster_data = st.checkbox(
-            "Save cluster data",
-            value=False,
-            help="Only has an effect when Write output files is checked.",
-        )
-        save_untransformed = st.checkbox(
-            "Save untransformed cluster data",
-            value=False,
-            help="Only has an effect when Save cluster data is checked.",
-        )
-
-        model_type = None
-        perturbative_settings: dict[str, Any] = {}
-        if mode == "simple_run":
-            model_type = st.selectbox("Model", MODEL_OPTIONS)
-
-        if mode == "perturbative_triple_run_with_resolvedness":
-            with st.expander("Perturbative and resolvedness settings", expanded=True):
-                p_left, p_right = st.columns(2)
-                with p_left:
-                    n_iterations = st.number_input(
-                        "Perturbative iterations",
-                        min_value=1,
-                        value=100,
-                        step=1,
-                    )
-                    major_error = st.number_input(
-                        "Major element error",
-                        min_value=0.0,
-                        value=0.02,
-                        step=0.01,
-                        format="%.4f",
-                    )
-                    trace_error = st.number_input(
-                        "Trace element error",
-                        min_value=0.0,
-                        value=0.10,
-                        step=0.01,
-                        format="%.4f",
-                    )
-                    perturbation_seed_text = st.text_input(
-                        "Perturbation seed (blank for none)",
-                        value="",
-                    )
-                    integration_depth_text = st.text_input(
-                        "Integration depth (blank for automatic)",
-                        value="",
-                    )
-
-                with p_right:
-                    pseudo_unknown_iterations = st.number_input(
-                        "Pseudo-unknown iterations",
-                        min_value=1,
-                        value=100,
-                        step=1,
-                    )
-                    pseudo_unknown_sample_size_text = st.text_input(
-                        "Pseudo-unknown sample size (blank to infer)",
-                        value="",
-                    )
-                    pseudo_unknown_random_state_text = st.text_input(
-                        "Pseudo-unknown random state (blank for none)",
-                        value="",
-                    )
-                    target_precisions_text = st.text_input(
-                        "Target precisions, comma separated (blank for defaults)",
-                        value="",
-                    )
-                    min_runs_above_threshold = st.number_input(
-                        "Minimum runs above threshold",
-                        min_value=1,
-                        value=1,
-                        step=1,
-                    )
-
-                major_cols = st.multiselect(
-                    "Major columns (blank uses defaults if present)",
-                    numeric_columns,
-                    default=[],
-                )
-                trace_cols = st.multiselect(
-                    "Trace columns (blank uses defaults if present)",
-                    numeric_columns,
-                    default=[],
-                )
-
-                perturbative_settings = {
-                    "n_iterations": int(n_iterations),
-                    "major_cols": major_cols or None,
-                    "trace_cols": trace_cols or None,
-                    "major_error": float(major_error),
-                    "trace_error": float(trace_error),
-                    "perturbation_seed_text": perturbation_seed_text,
-                    "pseudo_unknown_iterations": int(pseudo_unknown_iterations),
-                    "pseudo_unknown_sample_size_text": pseudo_unknown_sample_size_text,
-                    "pseudo_unknown_random_state_text": pseudo_unknown_random_state_text,
-                    "target_precisions_text": target_precisions_text,
-                    "min_runs_above_threshold": int(min_runs_above_threshold),
-                    "integration_depth_text": integration_depth_text,
-                }
-
-        submitted = st.form_submit_button("Run Analysis", use_container_width=True)
-
-    if not submitted:
-        return
+    model_type = form_state["model_type"]
+    if mode == "simple_run" and model_type not in MODEL_OPTIONS:
+        raise ValueError(f"Unsupported model: {model_type}")
 
     common = {
         "transform_type": transform_type,
         "unknown_sample": unknown_sample,
         "class_column": class_column,
-        "random_state": int(random_state) if seed_enabled else None,
+        "random_state": random_state if seed_enabled else None,
         "compute_pairwise": compute_pairwise,
         "plot_everything": plot_everything,
         "write_files": write_files,
-        "output_dir": output_dir,
-        "plot_output_dir": plot_output_dir_text.strip() or None,
-        "max_depth": int(max_depth),
+        "output_dir": "",
+        "plot_output_dir": None,
+        "max_depth": max_depth,
         "exclude_columns": tuple(exclude_columns),
         "save_cluster_data": save_cluster_data,
         "save_untransformed": save_untransformed,
         "verbose": True,
     }
-    try:
-        if mode == "perturbative_triple_run_with_resolvedness":
-            perturbative_settings = {
-                **perturbative_settings,
-                "perturbation_seed": _parse_optional_int(
-                    perturbative_settings.pop("perturbation_seed_text")
-                ),
-                "pseudo_unknown_sample_size": _parse_optional_int(
-                    perturbative_settings.pop("pseudo_unknown_sample_size_text")
-                ),
-                "pseudo_unknown_random_state": _parse_optional_int(
-                    perturbative_settings.pop("pseudo_unknown_random_state_text")
-                ),
-                "target_precisions": _parse_float_list(
-                    perturbative_settings.pop("target_precisions_text")
-                ),
-                "integration_depth": _parse_optional_int(
-                    perturbative_settings.pop("integration_depth_text")
-                ),
-            }
-    except ValueError as exc:
-        st.error(f"Check the perturbative settings: {exc}")
-        return
 
-    advanced = {"model_type": model_type, **perturbative_settings}
+    advanced = {
+        "model_type": model_type,
+        "n_iterations": form_state["n_iterations"],
+        "major_cols": form_state["major_cols"] or None,
+        "trace_cols": form_state["trace_cols"] or None,
+        "major_error": form_state["major_error"],
+        "trace_error": form_state["trace_error"],
+        "perturbation_seed": _parse_optional_int(form_state["perturbation_seed_text"]),
+        "pseudo_unknown_iterations": form_state["pseudo_unknown_iterations"],
+        "pseudo_unknown_sample_size": _parse_optional_int(
+            form_state["pseudo_unknown_sample_size_text"]
+        ),
+        "pseudo_unknown_random_state": _parse_optional_int(
+            form_state["pseudo_unknown_random_state_text"]
+        ),
+        "target_precisions": _parse_float_list(form_state["target_precisions_text"]),
+        "min_runs_above_threshold": form_state["min_runs_above_threshold"],
+        "integration_depth": _parse_optional_int(form_state["integration_depth_text"]),
+    }
 
-    with st.spinner("Running DIHS analysis..."):
-        stdout_buffer = io.StringIO()
-        try:
-            with redirect_stdout(stdout_buffer):
-                result = _run_selected_mode(mode, df, common, advanced)
-        except Exception as exc:
-            st.error(f"Analysis failed: {exc}")
-            logs = stdout_buffer.getvalue().strip()
-            if logs:
-                with st.expander("Run log"):
-                    st.text(logs)
-            return
-
-    st.success("Analysis complete")
-    logs = stdout_buffer.getvalue().strip()
-    if logs:
-        with st.expander("Run log"):
-            st.text(logs)
-
-    _show_result(result)
+    temp_root = CACHE_ROOT / "runs" / uuid4().hex
+    temp_root.mkdir(parents=True, exist_ok=True)
+    internal_output_dir = temp_root / "outputs"
+    internal_output_dir.mkdir(parents=True, exist_ok=True)
 
     if write_files:
-        st.caption(f"Outputs written under: {os.path.abspath(output_dir)}")
+        common["output_dir"] = _resolve_user_path(output_dir_text or DEFAULT_OUTPUT_DIRS[mode])
+        common["plot_output_dir"] = _resolve_user_path(plot_output_dir_text) or None
+    else:
+        common["output_dir"] = str(internal_output_dir)
+        if plot_everything:
+            common["plot_output_dir"] = (
+                _resolve_user_path(plot_output_dir_text)
+                if plot_output_dir_text
+                else str((temp_root / "plots").resolve())
+            )
+        else:
+            common["plot_output_dir"] = None
+
+    return {
+        "mode": mode,
+        "common": common,
+        "advanced": advanced,
+        "form_state": form_state,
+        "temp_root": temp_root,
+    }
+
+
+def _format_label(parts: tuple[str, ...]) -> str:
+    cleaned = []
+    for part in parts:
+        if part.isdigit():
+            cleaned.append(f"Item {int(part) + 1}")
+        else:
+            cleaned.append(part.replace("_", " ").title())
+    return " / ".join(cleaned)
+
+
+def _normalize_table_for_display(key: str, df: pd.DataFrame) -> pd.DataFrame:
+    if key in {"pairwise_total_matrix", "pairwise_total_mean_matrix"}:
+        return df.reset_index()
+    return df
+
+
+def _collect_tables(
+    value: Any,
+    path: tuple[str, ...] = (),
+    collected: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    if collected is None:
+        collected = []
+    if isinstance(value, pd.DataFrame):
+        if path and path[-1] in DISPLAY_TABLE_KEYS:
+            collected.append(
+                {
+                    "path": path,
+                    "label": _format_label(path),
+                    "df": _normalize_table_for_display(path[-1], value),
+                }
+            )
+        return collected
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            _collect_tables(nested, path + (str(key),), collected)
+        return collected
+    if isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            _collect_tables(nested, path + (str(index),), collected)
+    return collected
+
+
+def _collect_plot_paths(
+    value: Any,
+    path: tuple[str, ...] = (),
+    collected: list[dict[str, Any]] | None = None,
+    seen: set[Path] | None = None,
+) -> list[dict[str, Any]]:
+    if collected is None:
+        collected = []
+    if seen is None:
+        seen = set()
+
+    if isinstance(value, pd.DataFrame):
+        return collected
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            _collect_plot_paths(nested, path + (str(key),), collected, seen)
+        return collected
+    if isinstance(value, (list, tuple, set)):
+        for index, nested in enumerate(value):
+            _collect_plot_paths(nested, path + (str(index),), collected, seen)
+        return collected
+    if isinstance(value, (str, os.PathLike)):
+        file_path = Path(value)
+        if file_path.suffix.lower() in PLOT_SUFFIXES and file_path.exists():
+            resolved = file_path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                label = _format_label(path) if path else file_path.stem.replace("_", " ").title()
+                collected.append(
+                    {
+                        "path": resolved,
+                        "label": f"{label} ({file_path.name})",
+                        "name": file_path.name,
+                    }
+                )
+    return collected
+
+
+def _collect_artifact_files(
+    value: Any,
+    path: tuple[str, ...] = (),
+    collected: list[dict[str, Any]] | None = None,
+    seen: set[Path] | None = None,
+) -> list[dict[str, Any]]:
+    if collected is None:
+        collected = []
+    if seen is None:
+        seen = set()
+    if isinstance(value, pd.DataFrame):
+        return collected
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            _collect_artifact_files(nested, path + (str(key),), collected, seen)
+        return collected
+    if isinstance(value, (list, tuple, set)):
+        for index, nested in enumerate(value):
+            _collect_artifact_files(nested, path + (str(index),), collected, seen)
+        return collected
+    if isinstance(value, (str, os.PathLike)):
+        file_path = Path(value)
+        if file_path.exists() and file_path.is_file() and file_path.suffix.lower() not in PLOT_SUFFIXES:
+            resolved = file_path.resolve()
+            if resolved in seen:
+                return collected
+            seen.add(resolved)
+            collected.append(
+                {
+                    "path": resolved,
+                    "label": _format_label(path) if path else file_path.name,
+                    "display_path": str(resolved),
+                }
+            )
+    return collected
+
+
+def _summarize_value(value: Any) -> Any:
+    if isinstance(value, pd.DataFrame):
+        return {
+            "type": "dataframe",
+            "rows": int(len(value)),
+            "columns": value.columns.tolist(),
+        }
+    if isinstance(value, dict):
+        return {str(key): _summarize_value(nested) for key, nested in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_summarize_value(nested) for nested in value]
+    if isinstance(value, set):
+        return [_summarize_value(nested) for nested in sorted(value, key=str)]
+    if isinstance(value, Path):
+        return str(value)
+    return _to_python_scalar(value)
+
+
+def _store_result(
+    *,
+    result: dict[str, Any],
+    dataset_id: str,
+    form_state: dict[str, Any],
+    logs: str,
+    temp_root: Path,
+    output_dir: str,
+    write_files: bool,
+) -> str:
+    result_id = uuid4().hex
+    table_entries = []
+    table_lookup = {}
+    table_filenames = {}
+    for index, table in enumerate(_collect_tables(result), start=1):
+        table_id = f"table_{index}"
+        table_df = table["df"]
+        filename = f"{table['path'][-1]}.csv"
+        table_lookup[table_id] = table_df
+        table_filenames[table_id] = filename
+        table_entries.append(
+            {
+                "id": table_id,
+                "label": table["label"],
+                "filename": filename,
+                "html": table_df.to_html(
+                    index=False,
+                    border=0,
+                    classes=["dataframe", "result-table"],
+                    na_rep="",
+                ),
+            }
+        )
+
+    plot_entries = []
+    plot_lookup = {}
+    for index, plot in enumerate(_collect_plot_paths(result), start=1):
+        plot_id = f"plot_{index}"
+        plot_lookup[plot_id] = plot["path"]
+        plot_entries.append(
+            {
+                "id": plot_id,
+                "label": plot["label"],
+                "name": plot["name"],
+                "is_svg": plot["path"].suffix.lower() == ".svg",
+            }
+        )
+
+    artifact_entries = []
+    artifact_lookup = {}
+    for index, artifact in enumerate(_collect_artifact_files(result), start=1):
+        artifact_id = f"artifact_{index}"
+        artifact_lookup[artifact_id] = artifact["path"]
+        artifact_entries.append(
+            {
+                "id": artifact_id,
+                "label": artifact["label"],
+                "display_path": artifact["display_path"],
+                "name": artifact["path"].name,
+            }
+        )
+
+    RESULT_CACHE[result_id] = {
+        "id": result_id,
+        "dataset_id": dataset_id,
+        "form_state": form_state,
+        "logs": logs,
+        "tables": table_entries,
+        "table_lookup": table_lookup,
+        "table_filenames": table_filenames,
+        "plots": plot_entries,
+        "plot_lookup": plot_lookup,
+        "artifacts": artifact_entries,
+        "artifact_lookup": artifact_lookup,
+        "details_json": json.dumps(_summarize_value(result), indent=2, default=str),
+        "output_dir": output_dir,
+        "write_files": write_files,
+        "temp_root": temp_root,
+        "updated_at": time.time(),
+    }
+    return result_id
+
+
+def _render_page(
+    *,
+    dataset_entry: dict[str, Any] | None = None,
+    result_entry: dict[str, Any] | None = None,
+    form_state: dict[str, Any] | None = None,
+    run_error: str | None = None,
+    run_logs: str = "",
+):
+    if dataset_entry is not None:
+        dataset_entry["updated_at"] = time.time()
+    if result_entry is not None:
+        result_entry["updated_at"] = time.time()
+
+    if dataset_entry is None:
+        dataset_payload = None
+        form_payload = None
+        selected_unknown_options = []
+    else:
+        form_payload = form_state or (
+            result_entry["form_state"] if result_entry is not None else _default_form_state(dataset_entry)
+        )
+        selected_unknown_options = dataset_entry["unknown_options"].get(
+            form_payload["class_column"],
+            [],
+        )
+        dataset_payload = {
+            "id": dataset_entry["id"],
+            "filename": dataset_entry["filename"],
+            "rows": dataset_entry["rows"],
+            "columns_count": dataset_entry["columns_count"],
+            "columns": dataset_entry["columns"],
+            "numeric_columns": dataset_entry["numeric_columns"],
+            "preview_html": dataset_entry["preview_html"],
+            "unknown_options": dataset_entry["unknown_options"],
+        }
+
+    return render_template(
+        "index.html",
+        dataset=dataset_payload,
+        result=result_entry,
+        form_state=form_payload,
+        selected_unknown_options=selected_unknown_options,
+        mode_options=MODE_OPTIONS,
+        model_options=MODEL_OPTIONS,
+        transform_options=TRANSFORM_OPTIONS,
+        default_output_dirs=DEFAULT_OUTPUT_DIRS,
+        run_error=run_error,
+        run_logs=run_logs,
+    )
+
+
+@app.route("/", methods=["GET"])
+def index():
+    dataset_entry = _get_dataset_entry(request.args.get("dataset"))
+    result_entry = _get_result_entry(request.args.get("result"))
+    if result_entry is not None and dataset_entry is None:
+        dataset_entry = _get_dataset_entry(result_entry["dataset_id"])
+    if result_entry is not None and dataset_entry is not None:
+        return _render_page(dataset_entry=dataset_entry, result_entry=result_entry)
+    if dataset_entry is not None:
+        return _render_page(dataset_entry=dataset_entry)
+    return _render_page()
+
+
+@app.route("/load-data", methods=["POST"])
+def load_data():
+    uploaded_file = request.files.get("dataset")
+    if uploaded_file is None or not uploaded_file.filename:
+        flash("Choose a CSV file to continue.", "error")
+        return _render_page()
+
+    try:
+        df = _read_uploaded_csv(uploaded_file)
+    except Exception as exc:
+        flash(f"Could not read CSV: {exc}", "error")
+        return _render_page()
+
+    if df.empty:
+        flash("The uploaded CSV is empty.", "error")
+        return _render_page()
+
+    dataset_entry = _build_dataset_entry(df, uploaded_file.filename)
+    return redirect(url_for("index", dataset=dataset_entry["id"]))
+
+
+@app.route("/run", methods=["POST"])
+def run_analysis():
+    dataset_entry = _get_dataset_entry(request.form.get("dataset_id"))
+    if dataset_entry is None:
+        flash("Upload a CSV file again so the app can rebuild the analysis form.", "error")
+        return redirect(url_for("index"))
+
+    try:
+        parsed = _parse_form_submission(dataset_entry)
+    except ValueError as exc:
+        return _render_page(
+            dataset_entry=dataset_entry,
+            form_state=_form_state_from_request(dataset_entry),
+            run_error=str(exc),
+        )
+
+    stdout_buffer = io.StringIO()
+    try:
+        with redirect_stdout(stdout_buffer):
+            result = _run_selected_mode(
+                parsed["mode"],
+                dataset_entry["df"],
+                parsed["common"],
+                parsed["advanced"],
+            )
+    except Exception as exc:
+        return _render_page(
+            dataset_entry=dataset_entry,
+            form_state=parsed["form_state"],
+            run_error=f"Analysis failed: {exc}",
+            run_logs=stdout_buffer.getvalue().strip(),
+        )
+
+    result_id = _store_result(
+        result=result,
+        dataset_id=dataset_entry["id"],
+        form_state=parsed["form_state"],
+        logs=stdout_buffer.getvalue().strip(),
+        temp_root=parsed["temp_root"],
+        output_dir=parsed["common"]["output_dir"],
+        write_files=parsed["common"]["write_files"],
+    )
+    return redirect(url_for("index", dataset=dataset_entry["id"], result=result_id))
+
+
+@app.route("/downloads/tables/<result_id>/<table_id>.csv", methods=["GET"])
+def download_table(result_id: str, table_id: str):
+    result_entry = _get_result_entry(result_id)
+    if result_entry is None:
+        abort(404)
+    table_df = result_entry["table_lookup"].get(table_id)
+    if table_df is None:
+        abort(404)
+    csv_data = table_df.to_csv(index=False).encode("utf-8")
+    filename = result_entry["table_filenames"].get(table_id, f"{table_id}.csv")
+    return send_file(
+        io.BytesIO(csv_data),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@app.route("/plots/<result_id>/<plot_id>", methods=["GET"])
+def plot_file(result_id: str, plot_id: str):
+    result_entry = _get_result_entry(result_id)
+    if result_entry is None:
+        abort(404)
+    file_path = result_entry["plot_lookup"].get(plot_id)
+    if file_path is None or not file_path.exists():
+        abort(404)
+    return send_file(file_path)
+
+
+@app.route("/downloads/files/<result_id>/<artifact_id>", methods=["GET"])
+def download_artifact(result_id: str, artifact_id: str):
+    result_entry = _get_result_entry(result_id)
+    if result_entry is None:
+        abort(404)
+    file_path = result_entry["artifact_lookup"].get(artifact_id)
+    if file_path is None or not file_path.exists():
+        abort(404)
+    return send_file(file_path, as_attachment=True, download_name=file_path.name)
 
 
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)

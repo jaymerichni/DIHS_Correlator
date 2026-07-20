@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DIHS Correlator</title>
+  <style>
+    :root {
+      --paper: #f7f0e2;
+      --ink: #1d231f;
+      --card: #fffdf8;
+      --line: #d9c9a8;
+      --accent: #b84c2b;
+      --accent-dark: #8e351a;
+      --muted: #5f675f;
+      --shadow: 0 18px 38px rgba(36, 28, 18, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(184, 76, 43, 0.18), transparent 28%),
+        linear-gradient(180deg, #efe2c4 0%, var(--paper) 24%, #f9f4eb 100%);
+    }
+
+    .shell {
+      width: min(1200px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 48px;
+    }
+
+    .hero,
+    .panel,
+    .table-card,
+    .plot-card,
+    .artifact-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 3vw, 3rem);
+      letter-spacing: 0.02em;
+    }
+
+    .hero p,
+    .meta,
+    .hint,
+    .status,
+    label small {
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .form-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .results-grid,
+    .plot-grid,
+    .artifact-grid {
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+
+    .panel {
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+
+    h2,
+    h3 {
+      margin-top: 0;
+    }
+
+    form {
+      margin: 0;
+    }
+
+    label {
+      display: grid;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 0.96rem;
+    }
+
+    input,
+    select,
+    button,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 11px 13px;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    select[multiple] {
+      min-height: 128px;
+    }
+
+    .inline-check {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+    }
+
+    .inline-check input {
+      width: auto;
+      margin: 0;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    button {
+      width: auto;
+      min-width: 180px;
+      cursor: pointer;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fff;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      box-shadow: 0 14px 28px rgba(184, 76, 43, 0.28);
+    }
+
+    .flash-list {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .flash,
+    .run-error {
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid #d28769;
+      background: #fff0e9;
+      color: #6e2917;
+    }
+
+    .preview-wrap,
+    .table-wrap {
+      overflow: auto;
+      max-height: 480px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.93rem;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #eadcc1;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #f6ecda;
+      z-index: 1;
+    }
+
+    .table-card,
+    .plot-card,
+    .artifact-card {
+      padding: 18px;
+    }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .card-head h3,
+    .card-head p {
+      margin: 0;
+    }
+
+    .link {
+      color: var(--accent-dark);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .plot-frame {
+      width: 100%;
+      min-height: 520px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    img.plot-frame {
+      object-fit: contain;
+      min-height: 320px;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fffaf0;
+      padding: 14px 16px;
+    }
+
+    details pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 14px 0 0;
+      font-size: 0.88rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 700px) {
+      .shell {
+        width: min(100% - 18px, 1200px);
+      }
+
+      .hero,
+      .panel,
+      .table-card,
+      .plot-card,
+      .artifact-card {
+        border-radius: 16px;
+      }
+
+      .plot-frame {
+        min-height: 340px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <p class="meta">DIHS analysis workspace</p>
+      <h1>DIHS Correlator</h1>
+      <p>Upload a CSV dataset, configure one of the DIHS workflows, and inspect tables, logs, plots, and saved artifacts from a Flask app.</p>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-list">
+          {% for category, message in messages %}
+            <div class="flash">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="panel">
+      <h2>1. Upload Dataset</h2>
+      <form action="{{ url_for('load_data') }}" method="post" enctype="multipart/form-data">
+        <div class="grid form-grid">
+          <label>
+            CSV dataset
+            <input type="file" name="dataset" accept=".csv,text/csv" required>
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit">Load CSV</button>
+        </div>
+      </form>
+    </section>
+
+    {% if dataset %}
+      <section class="panel">
+        <div class="card-head">
+          <div>
+            <h2>2. Dataset Preview</h2>
+            <p class="status">{{ dataset.filename }} | {{ "{:,}".format(dataset.rows) }} rows x {{ "{:,}".format(dataset.columns_count) }} columns</p>
+          </div>
+        </div>
+        <div class="preview-wrap">{{ dataset.preview_html|safe }}</div>
+      </section>
+
+      <section class="panel">
+        <h2>3. Configure Analysis</h2>
+        <form id="analysis-form" action="{{ url_for('run_analysis') }}" method="post">
+          <input type="hidden" name="dataset_id" value="{{ dataset.id }}">
+
+          <div class="grid form-grid">
+            <label>
+              Run mode
+              <select id="mode" name="mode">
+                {% for mode in mode_options %}
+                  <option value="{{ mode }}" {% if form_state.mode == mode %}selected{% endif %}>{{ mode }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label id="model-group">
+              Model
+              <select name="model_type">
+                {% for model in model_options %}
+                  <option value="{{ model }}" {% if form_state.model_type == model %}selected{% endif %}>{{ model }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Class column
+              <select id="class-column" name="class_column">
+                {% for column in dataset.columns %}
+                  <option value="{{ column }}" {% if form_state.class_column == column %}selected{% endif %}>{{ column }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Unknown sample/class
+              <select id="unknown-sample" name="unknown_sample">
+                {% for option in selected_unknown_options %}
+                  <option value="{{ option.token }}" {% if form_state.unknown_sample_token == option.token %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Transform
+              <select name="transform_type">
+                {% for transform in transform_options %}
+                  <option value="{{ transform }}" {% if form_state.transform_type == transform %}selected{% endif %}>{{ transform }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Max depth
+              <input type="number" name="max_depth" min="1" step="1" value="{{ form_state.max_depth }}">
+            </label>
+
+            <label>
+              Random state
+              <input type="number" name="random_state" min="0" step="1" value="{{ form_state.random_state }}">
+              <small>Only applied when the checkbox below is enabled.</small>
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="seed_enabled" {% if form_state.seed_enabled %}checked{% endif %}>
+              Use random state
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="compute_pairwise" {% if form_state.compute_pairwise %}checked{% endif %}>
+              Compute pairwise matrices
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="plot_everything" {% if form_state.plot_everything %}checked{% endif %}>
+              Create plots
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="write_files" {% if form_state.write_files %}checked{% endif %}>
+              Write output files
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="save_cluster_data" {% if form_state.save_cluster_data %}checked{% endif %}>
+              Save cluster data
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="save_untransformed" {% if form_state.save_untransformed %}checked{% endif %}>
+              Save untransformed cluster data
+            </label>
+
+            <label>
+              Output directory
+              <input id="output-dir" type="text" name="output_dir" value="{{ form_state.output_dir }}">
+            </label>
+
+            <label>
+              Plot output directory
+              <input type="text" name="plot_output_dir" value="{{ form_state.plot_output_dir }}">
+            </label>
+
+            <label>
+              Exclude columns from numeric features
+              <select name="exclude_columns" multiple>
+                {% for column in dataset.columns %}
+                  <option value="{{ column }}" {% if column in form_state.exclude_columns %}selected{% endif %}>{{ column }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div id="perturbative-settings" class="{% if form_state.mode != 'perturbative_triple_run_with_resolvedness' %}hidden{% endif %}">
+            <h3>Perturbative And Resolvedness Settings</h3>
+            <div class="grid form-grid">
+              <label>
+                Perturbative iterations
+                <input type="number" name="n_iterations" min="1" step="1" value="{{ form_state.n_iterations }}">
+              </label>
+
+              <label>
+                Major element error
+                <input type="number" name="major_error" min="0" step="0.01" value="{{ form_state.major_error }}">
+              </label>
+
+              <label>
+                Trace element error
+                <input type="number" name="trace_error" min="0" step="0.01" value="{{ form_state.trace_error }}">
+              </label>
+
+              <label>
+                Perturbation seed
+                <input type="text" name="perturbation_seed" value="{{ form_state.perturbation_seed_text }}">
+              </label>
+
+              <label>
+                Integration depth
+                <input type="text" name="integration_depth" value="{{ form_state.integration_depth_text }}">
+              </label>
+
+              <label>
+                Pseudo-unknown iterations
+                <input type="number" name="pseudo_unknown_iterations" min="1" step="1" value="{{ form_state.pseudo_unknown_iterations }}">
+              </label>
+
+              <label>
+                Pseudo-unknown sample size
+                <input type="text" name="pseudo_unknown_sample_size" value="{{ form_state.pseudo_unknown_sample_size_text }}">
+              </label>
+
+              <label>
+                Pseudo-unknown random state
+                <input type="text" name="pseudo_unknown_random_state" value="{{ form_state.pseudo_unknown_random_state_text }}">
+              </label>
+
+              <label>
+                Target precisions
+                <input type="text" name="target_precisions" value="{{ form_state.target_precisions_text }}">
+                <small>Comma-separated values, for example 0.95,0.9,0.85</small>
+              </label>
+
+              <label>
+                Minimum runs above threshold
+                <input type="number" name="min_runs_above_threshold" min="1" step="1" value="{{ form_state.min_runs_above_threshold }}">
+              </label>
+
+              <label>
+                Major columns
+                <select name="major_cols" multiple>
+                  {% for column in dataset.numeric_columns %}
+                    <option value="{{ column }}" {% if column in form_state.major_cols %}selected{% endif %}>{{ column }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+
+              <label>
+                Trace columns
+                <select name="trace_cols" multiple>
+                  {% for column in dataset.numeric_columns %}
+                    <option value="{{ column }}" {% if column in form_state.trace_cols %}selected{% endif %}>{{ column }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit">Run Analysis</button>
+          </div>
+        </form>
+      </section>
+    {% endif %}
+
+    {% if run_error %}
+      <section class="panel">
+        <div class="run-error">{{ run_error }}</div>
+        {% if run_logs %}
+          <details open>
+            <summary>Run log</summary>
+            <pre>{{ run_logs }}</pre>
+          </details>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if result %}
+      <section class="panel">
+        <div class="card-head">
+          <div>
+            <h2>4. Results</h2>
+            <p class="status">Analysis complete{% if result.write_files %} | Outputs written under {{ result.output_dir }}{% endif %}</p>
+          </div>
+        </div>
+
+        {% if result.logs %}
+          <details open>
+            <summary>Run log</summary>
+            <pre>{{ result.logs }}</pre>
+          </details>
+        {% endif %}
+      </section>
+
+      {% if result.tables %}
+        <section class="panel">
+          <h2>Tables</h2>
+          <div class="grid results-grid">
+            {% for table in result.tables %}
+              <article class="table-card">
+                <div class="card-head">
+                  <h3>{{ table.label }}</h3>
+                  <a class="link" href="{{ url_for('download_table', result_id=result.id, table_id=table.id) }}">Download CSV</a>
+                </div>
+                <div class="table-wrap">{{ table.html|safe }}</div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if result.plots %}
+        <section class="panel">
+          <h2>Plots</h2>
+          <div class="grid plot-grid">
+            {% for plot in result.plots %}
+              <article class="plot-card">
+                <div class="card-head">
+                  <h3>{{ plot.label }}</h3>
+                  <a class="link" href="{{ url_for('plot_file', result_id=result.id, plot_id=plot.id) }}" target="_blank" rel="noreferrer">Open file</a>
+                </div>
+                {% if plot.is_svg %}
+                  <object class="plot-frame" data="{{ url_for('plot_file', result_id=result.id, plot_id=plot.id) }}" type="image/svg+xml"></object>
+                {% else %}
+                  <img class="plot-frame" src="{{ url_for('plot_file', result_id=result.id, plot_id=plot.id) }}" alt="{{ plot.name }}">
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if result.artifacts %}
+        <section class="panel">
+          <h2>Saved Artifacts</h2>
+          <div class="grid artifact-grid">
+            {% for artifact in result.artifacts %}
+              <article class="artifact-card">
+                <div class="card-head">
+                  <div>
+                    <h3>{{ artifact.label }}</h3>
+                    <p class="hint">{{ artifact.display_path }}</p>
+                  </div>
+                  <a class="link" href="{{ url_for('download_artifact', result_id=result.id, artifact_id=artifact.id) }}">Download</a>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      <section class="panel">
+        <h2>Additional Result Details</h2>
+        <details>
+          <summary>Inspect payload summary</summary>
+          <pre>{{ result.details_json }}</pre>
+        </details>
+      </section>
+    {% endif %}
+  </div>
+
+  {% if dataset and form_state %}
+    <script>
+      const unknownOptions = {{ dataset.unknown_options | tojson }};
+      const defaultOutputDirs = {{ default_output_dirs | tojson }};
+      const classColumnSelect = document.getElementById("class-column");
+      const unknownSampleSelect = document.getElementById("unknown-sample");
+      const modeSelect = document.getElementById("mode");
+      const modelGroup = document.getElementById("model-group");
+      const perturbativeSettings = document.getElementById("perturbative-settings");
+      const outputDirInput = document.getElementById("output-dir");
+      const initialUnknownToken = {{ form_state.unknown_sample_token | tojson }};
+      const initialMode = {{ form_state.mode | tojson }};
+
+      function syncUnknownOptions(preferredToken) {
+        const column = classColumnSelect.value;
+        const options = unknownOptions[column] || [];
+        const current = preferredToken || unknownSampleSelect.value;
+        unknownSampleSelect.innerHTML = "";
+        options.forEach((option) => {
+          const element = document.createElement("option");
+          element.value = option.token;
+          element.textContent = option.label;
+          if (option.token === current) {
+            element.selected = true;
+          }
+          unknownSampleSelect.appendChild(element);
+        });
+        if (!unknownSampleSelect.value && options.length > 0) {
+          unknownSampleSelect.value = options[0].token;
+        }
+      }
+
+      function syncModeUI(useInitialValue) {
+        const mode = modeSelect.value;
+        modelGroup.classList.toggle("hidden", mode !== "simple_run");
+        perturbativeSettings.classList.toggle(
+          "hidden",
+          mode !== "perturbative_triple_run_with_resolvedness"
+        );
+        if (!useInitialValue && defaultOutputDirs[mode]) {
+          outputDirInput.value = defaultOutputDirs[mode];
+        }
+      }
+
+      classColumnSelect.addEventListener("change", () => syncUnknownOptions(""));
+      modeSelect.addEventListener("change", () => syncModeUI(false));
+
+      syncUnknownOptions(initialUnknownToken);
+      modeSelect.value = initialMode;
+      syncModeUI(true);
+    </script>
+  {% endif %}
+</body>
+</html>
