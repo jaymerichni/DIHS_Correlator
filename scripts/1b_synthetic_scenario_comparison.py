@@ -34,8 +34,8 @@ if str(SRC_ROOT) not in sys.path:
 from DIHS_Correlator.core.transforms import BASE_TRANSFORMATIONS
 from DIHS_Correlator.workflows.single_run import CorrelationRunner
 
-CSV_PATH = "./data/Processed/synthetic_scenarios/all_scenarios_combined.csv"
-OUTPUT_ROOT = "./results/1_benchmarking_comparison"
+CSV_PATH = REPO_ROOT / "data" / "processed" / "synthetic_scenarios" / "all_scenarios_combined.csv"
+OUTPUT_ROOT = Path(__file__).resolve().parent / "1_benchmarking_comparison"
 UNKNOWN_SAMPLE = "X"
 TRUE_SOURCE_CLASS = "A"
 CLASS_COLUMN = "class_label"
@@ -856,7 +856,7 @@ def direct_unknown_sample_size_run(
     max_depth: int = MAX_DEPTH,
     exclude_columns: Iterable[Any] = (),
     write_files: bool = False,
-    output_dir: str | Path = "./results_direct_unknown_sample_size",
+    output_dir: str | Path = REPO_ROOT / "results" / "direct_unknown_sample_size",
     verbose: bool = True,
     return_details: bool = False,
 ):
