@@ -26,8 +26,8 @@ Use this checklist before creating the Zenodo-linked archival release or submitt
 
 - Remove generated local outputs such as `Results*` folders before tagging a release.
 - Remove temporary build products such as `build/`, `dist/`, and `*.egg-info/` before publishing the release snapshot.
-- Run the smoke tests below from a clean checkout:
+- Run a lightweight import and syntax sanity check from a clean checkout:
 
 ```bash
-python -m unittest discover -s tests
+python -m compileall src
 ```

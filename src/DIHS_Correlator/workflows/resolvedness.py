@@ -800,6 +800,7 @@ def perturbative_triple_run_with_resolvedness_workflow(
                 pseudo_results=pseudo_depth_outputs["pseudo_results"],
                 output_path=overlay_plot_path,
                 title=f"Resolvedness calibration overlay | {title_suffix}",
+                target_thresholds=pseudo_depth_outputs["thresholds_by_target_precision"],
             )
 
             resolvedness_artifacts.update(

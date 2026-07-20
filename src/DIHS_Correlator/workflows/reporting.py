@@ -1,6 +1,4 @@
 import os
-import warnings
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -8,23 +6,14 @@ import pandas as pd
 from DIHS_Correlator.viz.pseudo_unknown import (
     plot_margin_comparison,
     plot_margin_histogram,
+    plot_perturbative_calibration_overlay,
 )
 from DIHS_Correlator.workflows.analysis import (
     _build_perturbative_calibration_outputs,
-    _compute_margin_from_hs_metrics,
-    _compute_precision_at_threshold,
-    _exclude_unknown_neighbor,
-    _finite_float_values,
-    _flatten_threshold_summary,
-    _infer_pseudo_unknown_common_depth,
     _load_pseudo_unknown_calibration_tables,
-    _load_pseudo_unknown_margin_inputs,
-    _load_perturbative_margin_inputs,
     _normalize_target_precisions,
     _prepare_margin_plot_data_from_outputs,
     _resolve_display_threshold,
-    _select_pseudo_unknown_outputs_at_depth,
-    _select_top1_candidate_for_calibration,
 )
 
 
@@ -133,7 +122,7 @@ def calibrate_perturbative_resolvedness_from_outputs(
     verbose: bool = True,
     return_details: bool = False,
 ):
-    precisions = list(target_precisions or [0.95, 0.90, 0.85, 0.80, 0.75])
+    precisions = _normalize_target_precisions(target_precisions)
     result = _prepare_margin_plot_data_from_outputs(
         pseudo_unknown_output_dir=pseudo_unknown_output_dir,
         perturbative_output_dir=perturbative_output_dir,
@@ -187,11 +176,16 @@ def calibrate_perturbative_resolvedness_from_outputs(
         )
 
     if plot_output_path is not None:
-        os.makedirs(os.path.dirname(plot_output_path), exist_ok=True)
-        warnings.warn(
-            "plot_output_path is currently a placeholder; the reporting module does not yet render a plot file.",
-            stacklevel=3,
+        plot_perturbative_calibration_overlay(
+            threshold_curve=threshold_curve,
+            perturbative_runs=calibrated_runs,
+            pseudo_results=result["pseudo_results"],
+            output_path=plot_output_path,
+            title=title,
+            target_thresholds=thresholds_by_target_precision,
+            bins=bins,
         )
+        artifacts["calibration_overlay_plot_path"] = plot_output_path
 
     out = {
         "integration_depth": result["integration_depth"],
@@ -202,6 +196,7 @@ def calibrate_perturbative_resolvedness_from_outputs(
         "perturbative_calibration_summary": calibration_summary,
         "perturbative_regime_summary": regime_summary,
         "artifacts": artifacts,
+        "plot_output_path": plot_output_path,
     }
     if return_details:
         return out

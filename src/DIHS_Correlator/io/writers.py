@@ -1,8 +1,14 @@
 import os
 
 
+def _ensure_parent_dir(path: str) -> None:
+    out_dir = os.path.dirname(path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+
 def save_dataframe(df, path: str, index: bool = False):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    _ensure_parent_dir(path)
     df.to_csv(path, index=index)
     return path
 

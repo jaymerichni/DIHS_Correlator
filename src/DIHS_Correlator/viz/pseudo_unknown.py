@@ -159,7 +159,6 @@ def plot_margin_comparison(
     output_path: Optional[str] = None,
     threshold: float | None = None,
     threshold_label: str | None = None,
-    reference_thresholds: pd.DataFrame | None = None,
     title: str | None = None,
     perturbative_margins: np.ndarray | list[float] | None = None,
     integration_depth: int | None = None,
@@ -287,7 +286,6 @@ def plot_margin_histogram(
     output_path: Optional[str] = None,
     threshold: float | None = None,
     threshold_label: str | None = None,
-    reference_thresholds: pd.DataFrame | None = None,
     title: str | None = None,
     perturbative_margins: np.ndarray | list[float] | None = None,
     integration_depth: int | None = None,
@@ -443,7 +441,6 @@ def plot_perturbative_calibration_overlay(
     )
 
     density_patches = []
-    density_lines = []
     for key, vals, label in ordered_density:
         alpha = 0.22 if key == "perturbative" else 0.12
         line = 1.9 if key == "perturbative" else 1.4
@@ -483,6 +480,29 @@ def plot_perturbative_calibration_overlay(
             label=f"Perturbative mean = {mean_margin:.3f}",
             zorder=4.0,
         )
+
+    if (
+        target_thresholds is not None
+        and not target_thresholds.empty
+        and {"target_precision", "resolvedness_threshold"}.issubset(target_thresholds.columns)
+    ):
+        finite_thresholds = target_thresholds[
+            target_thresholds["resolvedness_threshold"].notna()
+        ].sort_values("target_precision", ascending=False)
+        if not finite_thresholds.empty:
+            cmap = plt.get_cmap("cividis")
+            denom = max(1, len(finite_thresholds) - 1)
+            for idx, (_, row) in enumerate(finite_thresholds.iterrows()):
+                target = float(row["target_precision"])
+                threshold = float(row["resolvedness_threshold"])
+                ax1.axvline(
+                    threshold,
+                    color=cmap(idx / denom),
+                    linestyle=":",
+                    linewidth=1.5,
+                    label=f"{int(round(100.0 * target))}% target = {threshold:.3f}",
+                    zorder=3.6,
+                )
 
     ax1.set_xlabel("DIHS margin threshold")
     ax1.set_ylabel("Pseudo-unknown precision", color="#1f4e79")
