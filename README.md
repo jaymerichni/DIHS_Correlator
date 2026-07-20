@@ -1,17 +1,18 @@
-﻿# DIHS Correlator
+# DIHS Tephra Correlator
 
-DIHS Correlator is a Python research package for interpretable tephra-source correlation using the Depth-Integrated Harmonic Score (DIHS) framework (Aymerich et al., 2026).
+DIHS Tephra Correlator is a Python research package for interpretable tephra-source correlation using the Depth-Integrated Harmonic Score (DIHS) framework (Aymerich et al., 2026). The installable Python package is named `DIHS_Correlator`.
 
 The repository implements:
 - recursive clustering-based correlation of unknown samples against candidate source classes,
 - DIHS computation across depth levels,
 - perturbative uncertainty propagation,
 - pseudo-unknown resolvedness calibration,
-- post-hoc reporting and visualization from saved outputs.
+- post-hoc reporting and visualization from saved outputs,
+- a local Flask interface for browser-based analysis.
 
 ## Scientific Scope
 
-The package is designed for compositional geochemical datasets where each row represents a sample and one column encodes class identity (for example, volcanic source or unit). The framework estimates class affinity by integrating harmonic-score behavior across recursive partition depth.
+The package is designed for compositional geochemical datasets where each row represents a sample and one column encodes class identity, for example a volcanic source or unit. The framework estimates class affinity by integrating harmonic-score behavior across recursive partition depth.
 
 ## Installation
 
@@ -26,10 +27,12 @@ After installation, `import DIHS_Correlator` works from any working directory.
 ## Repository Structure
 
 - `src/DIHS_Correlator/api.py`: public, user-facing entry points.
-- `src/DIHS_Correlator/core/`: fundamental algorithms (transformations, recursive clustering, DIHS metrics).
+- `src/DIHS_Correlator/core/`: core transformations, recursive clustering, and DIHS metrics.
 - `src/DIHS_Correlator/workflows/`: orchestration logic for complete analyses.
-- `src/DIHS_Correlator/viz/`: plotting utilities (HS curves, pairwise matrices, resolvedness plots).
-- `src/DIHS_Correlator/io/`: path and writer/loading helpers.
+- `src/DIHS_Correlator/viz/`: plotting utilities for HS curves, pairwise matrices, and pseudo-unknown diagnostics.
+- `src/DIHS_Correlator/io/`: output-path and file-writing helpers.
+- `src/DIHS_Correlator/web/`: packaged Flask application, Jinja template, and static front-end assets.
+- `app.py`: thin source-checkout launcher that preserves the `python app.py` workflow.
 - `pyproject.toml`: packaging metadata for editable and build installs.
 
 ## Analysis Modes
@@ -92,10 +95,24 @@ hs_per_depth = simple_run(
 )
 ```
 
+## Graphical Interface
+
+This repository includes a Flask app for running the main workflows from a browser.
+
+```bash
+python -m pip install -e .
+python app.py
+```
+
+The app starts a local server on `http://127.0.0.1:5000` by default. It lets you
+upload a CSV file, choose one of `simple_run`, `triple_run`, or
+`perturbative_triple_run_with_resolvedness`, configure the relevant arguments,
+and inspect or download the returned tables, plots, and saved artifacts.
+
 ## Input Expectations
 
 - Input object: `pandas.DataFrame`.
-- Class/label column: configurable (default `controlcode`).
+- Class/label column: configurable, default `controlcode`.
 - Feature columns: numeric columns not excluded by `exclude_columns`.
 - Transformation options: `none`, `ilr`, `clr`, `scaled`.
 
@@ -103,15 +120,12 @@ For perturbative workflows, major and trace perturbation columns can be passed e
 
 ## Output Conventions
 
-Depending on function and flags:
-- in-memory `DataFrame` outputs (default),
-- optional detailed dictionaries (`return_details=True`),
-- optional CSV/plot artifacts (`write_files=True`, `plot_everything=True`).
+Depending on the function and flags, workflows can return:
+- in-memory `DataFrame` outputs,
+- detailed dictionaries when `return_details=True`,
+- optional CSV and plot artifacts when `write_files=True` and `plot_everything=True`.
 
-Typical output directories include:
-- `Results*` folders for metrics and trees,
-- `Plots` folders for SVG figures,
-- model-specific subfolders for triple workflows.
+Typical output directories include `Results*` folders for metrics and trees, `Plots` folders for SVG figures, and model-specific subfolders for triple workflows.
 
 ## Methodological Notes
 

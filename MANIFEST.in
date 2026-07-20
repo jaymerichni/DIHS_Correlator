@@ -1,0 +1,3 @@
+include README.md
+recursive-include src/DIHS_Correlator/web/templates *.html
+recursive-include src/DIHS_Correlator/web/static *.css *.js

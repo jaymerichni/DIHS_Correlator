@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <p class="meta">DIHS tephra analysis workspace</p>
+      <h1>{{ app_title }}</h1>
+      <p>Upload a CSV dataset, choose a DIHS workflow, and inspect resolvedness summaries, run logs, and plots from the local Flask interface.</p>
+      <p class="meta">
+        Powered by DIHS_Correlator v{{ package_version }}
+        {% if software_doi %}
+          | Software DOI: {{ software_doi }}
+        {% else %}
+          | DOI pending archival release
+        {% endif %}
+      </p>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-list">
+          {% for category, message in messages %}
+            <div class="flash">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <section class="panel">
+      <h2>1. Upload Dataset</h2>
+      <form action="{{ url_for('load_data') }}" method="post" enctype="multipart/form-data">
+        <div class="grid form-grid">
+          <label>
+            CSV dataset
+            <input type="file" name="dataset" accept=".csv,text/csv" required>
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit">Load CSV</button>
+        </div>
+      </form>
+    </section>
+
+    {% if dataset %}
+      <section class="panel">
+        <div class="card-head">
+          <div>
+            <h2>2. Dataset Preview</h2>
+            <p class="status">{{ dataset.filename }} | {{ "{:,}".format(dataset.rows) }} rows x {{ "{:,}".format(dataset.columns_count) }} columns</p>
+          </div>
+        </div>
+        <div class="preview-wrap">{{ dataset.preview_html|safe }}</div>
+      </section>
+
+      <section class="panel">
+        <h2>3. Configure Analysis</h2>
+        <form id="analysis-form" action="{{ url_for('run_analysis') }}" method="post">
+          <input type="hidden" name="dataset_id" value="{{ dataset.id }}">
+
+          <div class="grid form-grid">
+            <label>
+              Analysis workflow
+              <select id="mode" name="mode">
+                {% for mode in mode_options %}
+                  <option value="{{ mode.value }}" {% if form_state.mode == mode.value %}selected{% endif %}>{{ mode.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label id="model-group">
+              Model
+              <select name="model_type">
+                {% for model in model_options %}
+                  <option value="{{ model }}" {% if form_state.model_type == model %}selected{% endif %}>{{ model }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Class column
+              <select id="class-column" name="class_column">
+                {% for column in dataset.columns %}
+                  <option value="{{ column }}" {% if form_state.class_column == column %}selected{% endif %}>{{ column }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Unknown sample/class
+              <select id="unknown-sample" name="unknown_sample">
+                {% for option in selected_unknown_options %}
+                  <option value="{{ option.token }}" {% if form_state.unknown_sample_token == option.token %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Transform
+              <select name="transform_type">
+                {% for transform in transform_options %}
+                  <option value="{{ transform }}" {% if form_state.transform_type == transform %}selected{% endif %}>{{ transform }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Max depth
+              <input type="number" name="max_depth" min="1" step="1" value="{{ form_state.max_depth }}">
+            </label>
+
+            <label>
+              Random state
+              <input type="number" name="random_state" min="0" step="1" value="{{ form_state.random_state }}">
+              <small>Only applied when the checkbox below is enabled.</small>
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="seed_enabled" {% if form_state.seed_enabled %}checked{% endif %}>
+              Use random state
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="compute_pairwise" {% if form_state.compute_pairwise %}checked{% endif %}>
+              Compute pairwise matrices
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="plot_everything" {% if form_state.plot_everything %}checked{% endif %}>
+              Create plots
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="write_files" {% if form_state.write_files %}checked{% endif %}>
+              Write output files
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="save_cluster_data" {% if form_state.save_cluster_data %}checked{% endif %}>
+              Save cluster data
+            </label>
+
+            <label class="inline-check">
+              <input type="checkbox" name="save_untransformed" {% if form_state.save_untransformed %}checked{% endif %}>
+              Save untransformed cluster data
+            </label>
+
+            <label>
+              Output directory
+              <input id="output-dir" type="text" name="output_dir" value="{{ form_state.output_dir }}">
+            </label>
+
+            <label>
+              Plot output directory
+              <input type="text" name="plot_output_dir" value="{{ form_state.plot_output_dir }}">
+            </label>
+
+            <label>
+              Exclude columns from numeric features
+              <select name="exclude_columns" multiple>
+                {% for column in dataset.columns %}
+                  <option value="{{ column }}" {% if column in form_state.exclude_columns %}selected{% endif %}>{{ column }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div id="perturbative-settings" class="{% if form_state.mode not in perturbative_modes %}hidden{% endif %}">
+            <h3>Perturbative Ensemble Settings</h3>
+            <div class="grid form-grid">
+              <label>
+                Perturbative iterations
+                <input type="number" name="n_iterations" min="1" step="1" value="{{ form_state.n_iterations }}">
+              </label>
+
+              <label>
+                Major element error
+                <input type="number" name="major_error" min="0" step="0.01" value="{{ form_state.major_error }}">
+              </label>
+
+              <label>
+                Trace element error
+                <input type="number" name="trace_error" min="0" step="0.01" value="{{ form_state.trace_error }}">
+              </label>
+
+              <label>
+                Perturbation seed
+                <input type="text" name="perturbation_seed" value="{{ form_state.perturbation_seed_text }}">
+              </label>
+
+              <label>
+                Integration depth
+                <input type="text" name="integration_depth" value="{{ form_state.integration_depth_text }}">
+              </label>
+
+              <label>
+                Major columns
+                <select name="major_cols" multiple>
+                  {% for column in dataset.numeric_columns %}
+                    <option value="{{ column }}" {% if column in form_state.major_cols %}selected{% endif %}>{{ column }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+
+              <label>
+                Trace columns
+                <select name="trace_cols" multiple>
+                  {% for column in dataset.numeric_columns %}
+                    <option value="{{ column }}" {% if column in form_state.trace_cols %}selected{% endif %}>{{ column }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div id="resolvedness-settings" class="{% if form_state.mode not in resolvedness_modes %}hidden{% endif %}">
+            <h3>Resolvedness Calibration Settings</h3>
+            <div class="grid form-grid">
+              <label>
+                Pseudo-unknown iterations
+                <input type="number" name="pseudo_unknown_iterations" min="1" step="1" value="{{ form_state.pseudo_unknown_iterations }}">
+              </label>
+
+              <label>
+                Pseudo-unknown sample size
+                <input type="text" name="pseudo_unknown_sample_size" value="{{ form_state.pseudo_unknown_sample_size_text }}">
+              </label>
+
+              <label>
+                Pseudo-unknown random state
+                <input type="text" name="pseudo_unknown_random_state" value="{{ form_state.pseudo_unknown_random_state_text }}">
+              </label>
+
+              <label>
+                Target precisions
+                <input type="text" name="target_precisions" value="{{ form_state.target_precisions_text }}">
+                <small>Comma-separated values, for example 0.95,0.9,0.85</small>
+              </label>
+
+              <label>
+                Minimum runs above threshold
+                <input type="number" name="min_runs_above_threshold" min="1" step="1" value="{{ form_state.min_runs_above_threshold }}">
+              </label>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit">Run Analysis</button>
+          </div>
+        </form>
+      </section>
+
+      {% if job and not result %}
+        <section
+          class="panel"
+          id="job-panel"
+          data-job-id="{{ job.id }}"
+          data-dataset-id="{{ dataset.id }}"
+        >
+          <div class="card-head">
+            <div>
+              <h2>4. Run Progress</h2>
+              <p class="status" id="job-mode">{{ job.mode_label }}</p>
+            </div>
+          </div>
+
+          <div class="progress-track" aria-label="Analysis progress">
+            <div
+              class="progress-fill"
+              id="progress-fill"
+              style="width: {{ job.progress_percent }}%;"
+            ></div>
+          </div>
+
+          <div class="job-grid">
+            <div class="job-stat">
+              <strong>Status</strong>
+              <span id="job-status">{{ job.status|replace("_", " ")|title }}</span>
+            </div>
+            <div class="job-stat">
+              <strong>Progress</strong>
+              <span id="job-progress">{{ job.progress_percent }}%</span>
+            </div>
+            <div class="job-stat">
+              <strong>Stage</strong>
+              <span id="job-stage">{{ job.stage or "queued" }}</span>
+            </div>
+            <div class="job-stat">
+              <strong>Counter</strong>
+              <span id="job-counter">
+                {% if job.current is not none and job.total is not none %}
+                  {{ job.current }} / {{ job.total }}
+                {% else %}
+                  Waiting for first update
+                {% endif %}
+              </span>
+            </div>
+          </div>
+
+          <p id="job-message"><strong>Current task:</strong> {{ job.message }}</p>
+          <p class="job-note">Live progress is most detailed for perturbative and resolvedness workflows.</p>
+
+          <details id="job-log-box" {% if job.logs %}open{% endif %}>
+            <summary>Run log</summary>
+            <pre id="job-logs">{{ job.logs }}</pre>
+          </details>
+        </section>
+      {% endif %}
+    {% endif %}
+
+    {% if run_error %}
+      <section class="panel">
+        <div class="run-error">{{ run_error }}</div>
+        {% if run_logs %}
+          <details open>
+            <summary>Run log</summary>
+            <pre>{{ run_logs }}</pre>
+          </details>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if result %}
+      <section class="panel">
+        <div class="card-head">
+          <div>
+            <h2>4. Results</h2>
+            <p class="status">Analysis complete{% if result.write_files %} | Outputs written under {{ result.output_dir }}{% endif %}</p>
+          </div>
+        </div>
+
+        {% if result.logs %}
+          <details open>
+            <summary>Run log</summary>
+            <pre>{{ result.logs }}</pre>
+          </details>
+        {% endif %}
+      </section>
+
+      {% if result.tables %}
+        <section class="panel">
+          <details class="collapsible-block" open>
+            <summary>Tables</summary>
+            <div class="collapsible-content">
+              <div class="grid results-grid">
+                {% for table in result.tables %}
+                  <article class="table-card">
+                    <div class="card-head">
+                      <h3>{{ table.label }}</h3>
+                      <a class="link" href="{{ url_for('download_table', result_id=result.id, table_id=table.id) }}">Download CSV</a>
+                    </div>
+                    <div class="table-wrap">{{ table.html|safe }}</div>
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
+        </section>
+      {% endif %}
+
+      {% if result.plots %}
+        <section class="panel">
+          <details class="collapsible-block" open>
+            <summary>Plots</summary>
+            <div class="collapsible-content">
+              <div class="grid plot-grid">
+                {% for plot in result.plots %}
+                  {% set plot_src = url_for('plot_file', result_id=result.id, plot_id=plot.id) %}
+                  <article class="plot-card">
+                    <div class="card-head">
+                      <h3>{{ plot.label }}</h3>
+                      <div class="viewer-actions">
+                        <button
+                          type="button"
+                          class="ghost-button js-open-plot"
+                          data-plot-src="{{ plot_src }}"
+                          data-plot-label="{{ plot.label }}"
+                        >
+                          Zoom & Pan
+                        </button>
+                        <a class="link" href="{{ plot_src }}" target="_blank" rel="noreferrer">Open file</a>
+                      </div>
+                    </div>
+                    <img
+                      class="plot-frame plot-preview js-open-plot"
+                      src="{{ plot_src }}"
+                      alt="{{ plot.name }}"
+                      data-plot-src="{{ plot_src }}"
+                      data-plot-label="{{ plot.label }}"
+                    >
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
+        </section>
+      {% endif %}
+
+      {% if result.plots %}
+        <div class="viewer-overlay" id="plot-viewer" aria-hidden="true">
+          <div class="viewer-shell">
+            <div class="viewer-toolbar">
+              <div>
+                <h3 id="viewer-title">Plot Viewer</h3>
+                <p class="status">Mouse wheel zooms. Drag to move. Reset to re-center.</p>
+              </div>
+              <div class="viewer-actions">
+                <button type="button" class="ghost-button" id="viewer-zoom-out">Zoom Out</button>
+                <button type="button" class="ghost-button" id="viewer-zoom-in">Zoom In</button>
+                <button type="button" class="ghost-button" id="viewer-reset">Reset</button>
+                <button type="button" id="viewer-close">Close</button>
+              </div>
+            </div>
+            <div class="viewer-stage" id="viewer-stage">
+              <img id="viewer-image" class="viewer-image" alt="">
+            </div>
+          </div>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if dataset and form_state %}
+    <script id="app-state" type="application/json">{{ {
+      "defaultOutputDirs": default_output_dirs,
+      "initialMode": form_state.mode,
+      "initialUnknownToken": form_state.unknown_sample_token,
+      "modelRequiredModes": model_required_modes,
+      "perturbativeModes": perturbative_modes,
+      "resolvednessModes": resolvedness_modes,
+      "unknownOptions": dataset.unknown_options
+    } | tojson }}</script>
+  {% endif %}
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
