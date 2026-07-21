@@ -1,0 +1,64 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "DIHS Tephra Correlator"
+version: "0.1.0"
+date-released: 2026-07-21
+authors:
+  - family-names: Aymerich
+    given-names: Jan
+  - family-names: Petrelli
+    given-names: Maurizio
+  - family-names: Ágreda-López
+    given-names: Mónica
+  - family-names: Boijseauneau-Lopez
+    given-names: Mario E.
+  - family-names: Sunyé-Puchol
+    given-names: Ivan
+  - family-names: Mingari
+    given-names: Leonardo
+  - family-names: Muir
+    given-names: Louise
+  - family-names: Geyer
+    given-names: Adelina
+  - family-names: Tierz
+    given-names: Pablo
+  - family-names: Bolós
+    given-names: Xavier
+keywords:
+  - tephra correlation
+  - tephrochronology
+  - machine learning
+  - geochemistry
+  - DIHS
+# Add the Zenodo version DOI here when the archival software release is minted.
+# doi: 10.5281/zenodo.XXXXXXX
+
+preferred-citation:
+  type: article
+  title: "A New Machine Learning Approach for Interpretable Tephra-Source Correlation: Introducing the Depth-Integrated Harmonic Score (DIHS)"
+  authors:
+    - family-names: Aymerich
+      given-names: Jan
+    - family-names: Petrelli
+      given-names: Maurizio
+    - family-names: Ágreda-López
+      given-names: Mónica
+    - family-names: Boijseauneau-Lopez
+      given-names: Mario E.
+    - family-names: Sunyé-Puchol
+      given-names: Ivan
+    - family-names: Mingari
+      given-names: Leonardo
+    - family-names: Muir
+      given-names: Louise
+    - family-names: Geyer
+      given-names: Adelina
+    - family-names: Tierz
+      given-names: Pablo
+    - family-names: Bolós
+      given-names: Xavier
+  journal: "Geochemistry, Geophysics, Geosystems"
+  year: 2026
+  # Add the article DOI here once the final paper metadata are available.
+  # doi: 10.XXXX/XXXXX
