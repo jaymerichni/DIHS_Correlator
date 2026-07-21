@@ -54,6 +54,11 @@ The repository now includes the processed benchmark data and the analysis script
 - Uses `data/Processed/caio_italy_benchmark/full_italian_data.csv` and runs the perturbative triple workflow plus pseudo-unknown resolvedness calibration discussed in the main text and Supporting Text S4.
 - Writes analysis outputs to `Results/2_caio_source_attribution/`.
 
+4. `scripts/3_sensitivity_data_size.py`
+- Runs pseudo-unknown sensitivity experiments on the coupled Italian dataset across four stratified dataset sizes (`25%`, `50%`, `75%`, `100%`) and a predefined grid of pseudo-unknown sample sizes.
+- Uses the three clustering models (`agglomerative`, `kmeans`, `gaussian`) and writes one result folder per dataset size under `Results/3_sensitivity_data_size/`, plus combined summary tables inside each dataset-size folder.
+- This script is intended to support the manuscript's practical discussion of how sample size influences margin stability and resolvedness behavior.
+
 These scripts are intended to be run from this repository checkout. The notebooks and the benchmarking script resolve paths against the repository layout directly so the bundled `data/` and `scripts/` folders stay portable inside an archival snapshot.
 
 Typical usage from the repository root:
