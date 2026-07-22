@@ -35,7 +35,7 @@ from DIHS_Correlator.core.transforms import BASE_TRANSFORMATIONS
 from DIHS_Correlator.workflows.single_run import CorrelationRunner
 
 CSV_PATH = REPO_ROOT / "data" / "processed" / "synthetic_scenarios" / "all_scenarios_combined.csv"
-OUTPUT_ROOT = Path(__file__).resolve().parent / "1_benchmarking_comparison"
+OUTPUT_ROOT = REPO_ROOT / "results" / "1_benchmarking_comparison"
 UNKNOWN_SAMPLE = "X"
 TRUE_SOURCE_CLASS = "A"
 CLASS_COLUMN = "class_label"

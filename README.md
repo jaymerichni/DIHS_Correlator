@@ -53,7 +53,7 @@ The repository now includes the processed benchmark data and the analysis script
 2. `scripts/1b_synthetic_scenario_comparison.py`
 - Benchmarks DIHS against the centroid-distance and Mahalanobis-distance baselines described in Supporting Text S2.
 - Repeats the comparison across the synthetic scenarios, the three clustering models (`agglomerative`, `kmeans`, `gaussian`), and a sweep of unknown sample sizes, matching the manuscript's sample-size sensitivity framing.
-- By default, reads `data/processed/synthetic_scenarios/all_scenarios_combined.csv` and writes its benchmark outputs under `scripts/1_benchmarking_comparison/`.
+- By default, reads `data/processed/synthetic_scenarios/all_scenarios_combined.csv` and writes its benchmark outputs under `results/1_benchmarking_comparison/`.
 
 3. `scripts/2_caio_source_attribution.ipynb`
 - Reproduces the Italian benchmark case study centered on the Caio outcrop and the Roman Magmatic Province association.
