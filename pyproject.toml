@@ -5,9 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "DIHS_Correlator"
 version = "0.1.0"
-description = "DIHS-based tephra correlation package."
+description = "DIHS-based software for interpretable tephra-source correlation."
 readme = "README.md"
 requires-python = ">=3.10"
+keywords = [
+    "tephra correlation",
+    "tephrochronology",
+    "machine learning",
+    "geochemistry",
+    "DIHS",
+]
 dependencies = [
     "flask",
     "matplotlib",
@@ -15,6 +22,24 @@ dependencies = [
     "pandas",
     "scikit-learn",
 ]
+
+[project.optional-dependencies]
+reproducibility = [
+    "ipykernel",
+    "jupyterlab",
+    "nbconvert",
+    "openpyxl",
+]
+test = [
+    "build",
+    "pytest",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/jaymerichni/DIHS_Correlator"
+Repository = "https://github.com/jaymerichni/DIHS_Correlator"
+Issues = "https://github.com/jaymerichni/DIHS_Correlator/issues"
 
 [project.scripts]
 dihs-tephra-correlator = "DIHS_Correlator.web:main"

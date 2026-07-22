@@ -1,0 +1,18 @@
+name: dihs-correlator-reproducibility
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12.3
+  - pip
+  - flask=2.3.3
+  - matplotlib=3.8.4
+  - numpy=2.2.6
+  - pandas=2.2.3
+  - scikit-learn=1.6.1
+  - openpyxl=3.1.5
+  - jupyterlab
+  - ipykernel
+  - nbconvert
+  - pytest
+  - build
+  - twine

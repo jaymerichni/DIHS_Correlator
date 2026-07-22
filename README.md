@@ -16,13 +16,19 @@ The package is designed for compositional geochemical datasets where each row re
 
 ## Installation
 
-From the repository root:
+From the repository root, install the base package with:
 
 ```bash
 python -m pip install -e .
 ```
 
 After installation, `import DIHS_Correlator` works from any working directory.
+
+For the bundled notebooks, manuscript workflows, and release checks, install the reproducibility extras:
+
+```bash
+python -m pip install -e ".[reproducibility,test]"
+```
 
 ## Repository Structure
 
@@ -32,7 +38,7 @@ After installation, `import DIHS_Correlator` works from any working directory.
 - `src/DIHS_Correlator/viz/`: plotting utilities for HS curves, pairwise matrices, and pseudo-unknown diagnostics.
 - `src/DIHS_Correlator/io/`: output-path and file-writing helpers.
 - `src/DIHS_Correlator/web/`: packaged Flask application, Jinja template, static front-end assets, and module entrypoint.
-- `data/Processed/`: processed reproducibility datasets for the synthetic validation scenarios and the Caio Italian benchmark.
+- `data/processed/`: processed reproducibility datasets for the synthetic validation scenarios and the Caio Italian benchmark.
 - `scripts/`: notebooks and scripts used to reproduce the main manuscript examples and benchmark workflows.
 - `pyproject.toml`: packaging metadata for editable and build installs.
 
@@ -42,21 +48,21 @@ The repository now includes the processed benchmark data and the analysis script
 
 1. `scripts/1a_synthetic_scenario_gen.ipynb`
 - Generates the six two-dimensional synthetic scenarios discussed in the synthetic validation section and Supporting Text S3.
-- Writes the combined benchmark table and overview figure to `data/Processed/synthetic_scenarios/`.
+- Writes the combined benchmark table and overview figure to `data/processed/synthetic_scenarios/`.
 
 2. `scripts/1b_synthetic_scenario_comparison.py`
 - Benchmarks DIHS against the centroid-distance and Mahalanobis-distance baselines described in Supporting Text S2.
 - Repeats the comparison across the synthetic scenarios, the three clustering models (`agglomerative`, `kmeans`, `gaussian`), and a sweep of unknown sample sizes, matching the manuscript's sample-size sensitivity framing.
-- By default, reads `data/Processed/synthetic_scenarios/all_scenarios_combined.csv` and writes its benchmark outputs under `scripts/1_benchmarking_comparison/`.
+- By default, reads `data/processed/synthetic_scenarios/all_scenarios_combined.csv` and writes its benchmark outputs under `scripts/1_benchmarking_comparison/`.
 
 3. `scripts/2_caio_source_attribution.ipynb`
 - Reproduces the Italian benchmark case study centered on the Caio outcrop and the Roman Magmatic Province association.
-- Uses `data/Processed/caio_italy_benchmark/full_italian_data.csv` and runs the perturbative triple workflow plus pseudo-unknown resolvedness calibration discussed in the main text and Supporting Text S4.
-- Writes analysis outputs to `Results/2_caio_source_attribution/`.
+- Uses `data/processed/caio_italy_benchmark/full_italian_data.csv` and runs the perturbative triple workflow plus pseudo-unknown resolvedness calibration discussed in the main text and Supporting Text S4.
+- Writes analysis outputs to `results/2_caio_source_attribution/`.
 
 4. `scripts/3_sensitivity_data_size.py`
 - Runs pseudo-unknown sensitivity experiments on the coupled Italian dataset across four stratified dataset sizes (`25%`, `50%`, `75%`, `100%`) and a predefined grid of pseudo-unknown sample sizes.
-- Uses the three clustering models (`agglomerative`, `kmeans`, `gaussian`) and writes one result folder per dataset size under `Results/3_sensitivity_data_size/`, plus combined summary tables inside each dataset-size folder.
+- Uses the three clustering models (`agglomerative`, `kmeans`, `gaussian`) and writes one result folder per dataset size under `results/3_sensitivity_data_size/`, plus combined summary tables inside each dataset-size folder.
 - This script is intended to support the manuscript's practical discussion of how sample size influences margin stability and resolvedness behavior.
 
 These scripts are intended to be run from this repository checkout. The notebooks and the benchmarking script resolve paths against the repository layout directly so the bundled `data/` and `scripts/` folders stay portable inside an archival snapshot.
@@ -179,3 +185,11 @@ Typical output directories include `Results*` folders for metrics and trees, `Pl
 - Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
 - Perturbative summaries are computed at the maximum common depth across iterations by default. Passing `integration_depth` to perturbative workflows forces both reported DIHS summaries and ensemble pairwise DIHS matrices to use that same cumulative depth.
 - Resolvedness calibration supports target precision levels and threshold reporting.
+
+## Reproducing
+
+For command-by-command execution of the bundled notebooks and scripts, see [REPRODUCING.md](REPRODUCING.md). Additional workflow-specific notes are provided in [scripts/README.md](scripts/README.md) and [data/README.md](data/README.md).
+
+## Citation
+
+Software citation metadata for the repository snapshot are stored in [CITATION.cff](CITATION.cff). Final release-only fields such as the Zenodo DOI and archival release date should be updated when the GitHub/Zenodo release is created.

@@ -3,7 +3,6 @@ message: "If you use this software, please cite it using the metadata below."
 type: software
 title: "DIHS Tephra Correlator"
 version: "0.1.0"
-date-released: 2026-07-21
 authors:
   - family-names: Aymerich
     given-names: Jan
@@ -31,5 +30,7 @@ keywords:
   - machine learning
   - geochemistry
   - DIHS
+repository-code: "https://github.com/jaymerichni/DIHS_Correlator"
+url: "https://github.com/jaymerichni/DIHS_Correlator"
 # Add the Zenodo version DOI here when the archival software release is minted.
 # doi: 10.5281/zenodo.XXXXXXX
