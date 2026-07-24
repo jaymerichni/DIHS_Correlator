@@ -38,13 +38,14 @@ python -m pip install -e ".[reproducibility,test]"
 - `src/DIHS_Correlator/viz/`: plotting utilities for HS curves, pairwise matrices, and pseudo-unknown diagnostics.
 - `src/DIHS_Correlator/io/`: output-path and file-writing helpers.
 - `src/DIHS_Correlator/web/`: packaged Flask application, Jinja template, static front-end assets, and module entrypoint.
-- `data/processed/`: processed reproducibility datasets for the synthetic validation scenarios and the Caio Italian benchmark.
+- `data/raw/`: acquisition notes for third-party benchmark inputs that are not redistributed in this repository.
+- `data/processed/`: bundled synthetic scenario outputs plus a placeholder directory for the locally generated Italian benchmark dataset.
 - `scripts/`: notebooks and scripts used to reproduce the main manuscript examples and benchmark workflows.
 - `pyproject.toml`: packaging metadata for editable and build installs.
 
 ## Reproducibility Scripts
 
-The repository now includes the processed benchmark data and the analysis scripts used to reproduce the two main empirical parts of the manuscript:
+The repository includes the synthetic scenario data and the analysis scripts used to reproduce the manuscript workflows. The Petrelli/GEOROC-derived Italian benchmark inputs and the derived `full_italian_data.csv` file are not redistributed here; acquisition and reconstruction notes are provided under `data/raw/` and `data/processed/caio_italy_benchmark/`.
 
 1. `scripts/1a_synthetic_scenario_gen.ipynb`
 - Generates the six two-dimensional synthetic scenarios discussed in the synthetic validation section and Supporting Text S3.
@@ -57,15 +58,15 @@ The repository now includes the processed benchmark data and the analysis script
 
 3. `scripts/2_caio_source_attribution.ipynb`
 - Reproduces the Italian benchmark case study centered on the Caio outcrop and the Roman Magmatic Province association.
-- Uses `data/processed/caio_italy_benchmark/full_italian_data.csv` and runs the perturbative triple workflow plus pseudo-unknown resolvedness calibration discussed in the main text and Supporting Text S4.
+- Uses a locally generated `data/processed/caio_italy_benchmark/full_italian_data.csv` and runs the perturbative triple workflow plus pseudo-unknown resolvedness calibration discussed in the main text and Supporting Text S4.
 - Writes analysis outputs to `results/2_caio_source_attribution/`.
 
 4. `scripts/3_sensitivity_data_size.py`
 - Runs pseudo-unknown sensitivity experiments on the coupled Italian dataset across four stratified dataset sizes (`25%`, `50%`, `75%`, `100%`) and a predefined grid of pseudo-unknown sample sizes.
-- Uses the three clustering models (`agglomerative`, `kmeans`, `gaussian`) and writes one result folder per dataset size under `results/3_sensitivity_data_size/`, plus combined summary tables inside each dataset-size folder.
+- Uses a locally generated `data/processed/caio_italy_benchmark/full_italian_data.csv`, the three clustering models (`agglomerative`, `kmeans`, `gaussian`), and writes one result folder per dataset size under `results/3_sensitivity_data_size/`, plus combined summary tables inside each dataset-size folder.
 - This script is intended to support the manuscript's practical discussion of how sample size influences margin stability and resolvedness behavior.
 
-These scripts are intended to be run from this repository checkout. The notebooks and the benchmarking script resolve paths against the repository layout directly so the bundled `data/` and `scripts/` folders stay portable inside an archival snapshot.
+These scripts are intended to be run from this repository checkout. The notebooks and the benchmarking script resolve paths against the repository layout directly so the bundled `data/` and `scripts/` folders stay portable inside an archival snapshot. For the Italian benchmark workflows, first follow `data/raw/README.md` and `data/processed/caio_italy_benchmark/README.md` to obtain the raw inputs and generate the local benchmark CSV.
 
 Typical usage from the repository root:
 

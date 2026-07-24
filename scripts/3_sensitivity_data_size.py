@@ -53,6 +53,15 @@ def clean_lettercode(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_coupled_dataset() -> pd.DataFrame:
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(
+            "Missing local benchmark dataset at "
+            f"'{DATA_PATH}'. This repository does not redistribute the "
+            "Petrelli/GEOROC-derived Italian benchmark data. Follow "
+            "'data/raw/README.md' to obtain the upstream inputs and run "
+            "'scripts/0_raw_data_preprocessing.ipynb' to generate "
+            "'data/processed/caio_italy_benchmark/full_italian_data.csv' locally."
+        )
     return clean_lettercode(pd.read_csv(DATA_PATH))
 
 

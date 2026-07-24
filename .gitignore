@@ -6,3 +6,6 @@ dist/
 .venv/
 .venv_*/
 DIHS_Correlator_Zenodo_AGU_Audit.md
+data/raw/georock-data.csv
+data/raw/Results_Caio.xlsx
+data/processed/caio_italy_benchmark/full_italian_data.csv
