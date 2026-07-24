@@ -89,6 +89,32 @@
       animation: fade-up 0.7s ease both;
     }
 
+    .hero-brand {
+      width: 100%;
+      min-height: 76px;
+      max-height: 176px;
+      aspect-ratio: 2894 / 451;
+      margin: 0 0 22px;
+      padding: clamp(8px, 1.2vw, 12px) clamp(12px, 1.8vw, 18px);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: calc(var(--radius-lg) - 2px);
+      border: 1px solid rgba(29, 29, 31, 0.06);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(250, 250, 252, 0.88));
+      box-shadow: var(--shadow-sm);
+    }
+
+    .hero-brand-image {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+    }
+
     .hero h1 {
       margin: 0 0 12px;
       max-width: 12ch;
@@ -579,6 +605,11 @@
 
       .hero {
         padding: 28px 24px;
+      }
+
+      .hero-brand {
+        margin-bottom: 18px;
+        border-radius: 18px;
       }
 
       .panel {

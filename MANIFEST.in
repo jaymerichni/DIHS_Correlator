@@ -7,4 +7,4 @@ recursive-include data *.md
 recursive-include data/processed/synthetic_scenarios *.csv *.svg
 recursive-include scripts *.py *.ipynb *.md
 recursive-include src/DIHS_Correlator/web/templates *.html
-recursive-include src/DIHS_Correlator/web/static *.css *.js
+recursive-include src/DIHS_Correlator/web/static *.css *.js *.png
