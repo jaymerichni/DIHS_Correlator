@@ -48,18 +48,18 @@ python -m pip install -e ".[reproducibility,test]"
 The repository includes the synthetic scenario data and the analysis scripts used to reproduce the manuscript workflows. The Petrelli/GEOROC-derived Italian benchmark inputs and the derived `full_italian_data.csv` file are not redistributed here; acquisition and reconstruction notes are provided under `data/raw/` and `data/processed/caio_italy_benchmark/`.
 
 1. `scripts/1a_synthetic_scenario_gen.ipynb`
-- Generates the six two-dimensional synthetic scenarios discussed in the synthetic validation section and Supporting Text S3.
+- Generates the six two-dimensional synthetic scenarios discussed in the synthetic validation section and Supporting Text S2.
 - Writes the combined benchmark table and overview figure to `data/processed/synthetic_scenarios/`.
 
 2. `scripts/1b_synthetic_scenario_comparison.py`
-- Benchmarks DIHS against the centroid-distance and Mahalanobis-distance baselines described in Supporting Text S2.
+- Benchmarks DIHS against the centroid-distance and Mahalanobis-distance baselines described in Supporting Text S3.
 - Repeats the comparison across the synthetic scenarios, the three clustering models (`agglomerative`, `kmeans`, `gaussian`), and a sweep of unknown sample sizes, matching the manuscript's sample-size sensitivity framing.
 - By default, reads `data/processed/synthetic_scenarios/all_scenarios_combined.csv` and writes its benchmark outputs under `results/1_benchmarking_comparison/`.
 
 3. `scripts/2_caio_source_attribution.ipynb`
 - Reproduces the Italian benchmark case study centered on the Caio outcrop and the Roman Magmatic Province association.
-- Uses a locally generated `data/processed/caio_italy_benchmark/full_italian_data.csv` and runs the perturbative triple workflow plus pseudo-unknown resolvedness calibration discussed in the main text and Supporting Text S4.
-- Writes analysis outputs to `results/2_caio_source_attribution/`.
+- Uses a locally generated `data/processed/caio_italy_benchmark/full_italian_data.csv`, removes accidental `Unnamed:` index columns defensively, and runs perturbative triple workflows plus pseudo-unknown resolvedness calibration for three feature spaces.
+- Writes analysis outputs to `results/2_caio_source_attribution/coupled/`, `results/2_caio_source_attribution/major_only/`, and `results/2_caio_source_attribution/trace_only/`.
 
 4. `scripts/3_sensitivity_data_size.py`
 - Runs pseudo-unknown sensitivity experiments on the coupled Italian dataset across four stratified dataset sizes (`25%`, `50%`, `75%`, `100%`) and a predefined grid of pseudo-unknown sample sizes.
@@ -191,6 +191,14 @@ Typical output directories include `Results*` folders for metrics and trees, `Pl
 
 For command-by-command execution of the bundled notebooks and scripts, see [REPRODUCING.md](REPRODUCING.md). Additional workflow-specific notes are provided in [scripts/README.md](scripts/README.md) and [data/README.md](data/README.md).
 
+## License
+
+This software is released under the BSD 3-Clause License. See [LICENSE](LICENSE).
+
+External benchmark inputs referenced in `data/raw/README.md` and the derived
+`data/processed/caio_italy_benchmark/full_italian_data.csv` are not redistributed in this repository.
+Those external data remain governed by their original source terms and citation requirements.
+
 ## Citation
 
-Software citation metadata for the repository snapshot are stored in [CITATION.cff](CITATION.cff). Final release-only fields such as the Zenodo DOI and archival release date should be updated when the GitHub/Zenodo release is created.
+Software citation metadata for the repository snapshot are stored in [CITATION.cff](CITATION.cff). Final release-only fields such as a Zenodo DOI and archival release date should be added only when the release is published.

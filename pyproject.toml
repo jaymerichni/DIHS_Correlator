@@ -4,9 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DIHS_Correlator"
-version = "0.1.0"
+version = "1.0.0"
 description = "DIHS-based software for interpretable tephra-source correlation."
 readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.10"
 keywords = [
     "tephra correlation",
@@ -20,6 +21,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "pandas",
+    "scikit-bio",
     "scikit-learn",
 ]
 

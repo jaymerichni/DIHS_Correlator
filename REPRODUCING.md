@@ -40,6 +40,9 @@ Before running the Italian benchmark workflows:
 2. Place local copies of the benchmark source files at `data/raw/georock-data.csv` and `data/raw/Results_Caio.xlsx`.
 3. Run `scripts/0_raw_data_preprocessing.ipynb` to generate `data/processed/caio_italy_benchmark/full_italian_data.csv`.
 
+The generated benchmark CSV is expected to contain 3907 rows, the 17 normalized
+geochemical variables plus `lettercode`, and no accidental `Unnamed:` index columns.
+
 ```bash
 jupyter nbconvert --execute --to notebook --inplace scripts/0_raw_data_preprocessing.ipynb
 jupyter nbconvert --execute --to notebook --inplace scripts/1a_synthetic_scenario_gen.ipynb
@@ -55,7 +58,7 @@ python scripts/3_sensitivity_data_size.py
 | `scripts/0_raw_data_preprocessing.ipynb` | Rebuild the processed Italian benchmark dataset from user-supplied raw source files. | Local copies of `data/raw/georock-data.csv` and `data/raw/Results_Caio.xlsx` obtained as described in `data/raw/README.md` | `data/processed/caio_italy_benchmark/full_italian_data.csv` | Deterministic data-preparation workflow. |
 | `scripts/1a_synthetic_scenario_gen.ipynb` | Generate the synthetic validation scenarios used in the manuscript. | Notebook-defined synthetic parameters | `data/processed/synthetic_scenarios/all_scenarios_combined.csv`, `data/processed/synthetic_scenarios/synthetic_scenarios.svg` | Deterministic scenario construction with notebook-controlled parameters. |
 | `scripts/1b_synthetic_scenario_comparison.py` | Compare DIHS against centroid-distance and Mahalanobis-distance baselines across scenarios and unknown sample sizes. | `data/processed/synthetic_scenarios/all_scenarios_combined.csv` | `results/1_benchmarking_comparison/` | Uses `RANDOM_STATE = 42`. |
-| `scripts/2_caio_source_attribution.ipynb` | Reproduce the Caio benchmark case study and resolvedness analysis. | Locally generated `data/processed/caio_italy_benchmark/full_italian_data.csv` | `results/2_caio_source_attribution/` | Deterministic unless notebook parameters are changed interactively. |
+| `scripts/2_caio_source_attribution.ipynb` | Reproduce the Caio benchmark case study and resolvedness analysis across coupled, major-only, and trace-only feature spaces. | Locally generated `data/processed/caio_italy_benchmark/full_italian_data.csv` | `results/2_caio_source_attribution/{coupled,major_only,trace_only}/` | Deterministic unless notebook parameters are changed interactively. |
 | `scripts/3_sensitivity_data_size.py` | Evaluate pseudo-unknown behavior across dataset-size reductions and sample-size sweeps. | Locally generated `data/processed/caio_italy_benchmark/full_italian_data.csv` | `results/3_sensitivity_data_size/` | Uses `RANDOM_STATE = 12345`. |
 
 ## Practical notes

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import json
 from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -32,10 +33,15 @@ MODELS = ["kmeans", "gaussian", "agglomerative"]
 N_ITERATIONS = 100
 RANDOM_STATE = 12345
 MAX_DEPTH = 100
+SENSITIVITY_CLASSES = ["AI", "PF", "EV", "RMP", "VV", "PI"]
+EXPECTED_SIX_PROVINCE_ROWS = 3479
+CONDITIONS = ("positive", "negative")
 
 
 def clean_lettercode(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
+
+    work = work.loc[:, ~work.columns.astype(str).str.startswith("Unnamed:")]
 
     if "controlcode" in work.columns:
         work = work.drop(columns=["controlcode"])
@@ -47,8 +53,21 @@ def clean_lettercode(df: pd.DataFrame) -> pd.DataFrame:
         .replace({"0": "Caio", "0.0": "Caio"})
     )
 
-    work = work[work[CLASS_COLUMN] != "Caio"]
-    work = work[work[CLASS_COLUMN] != "IAVP"]
+    work = work[work[CLASS_COLUMN].isin(SENSITIVITY_CLASSES)]
+
+    if work[CLASS_COLUMN].nunique() != 6:
+        raise ValueError(
+            "Sensitivity dataset must contain exactly six classes: "
+            f"{SENSITIVITY_CLASSES}. Found {work[CLASS_COLUMN].nunique()}."
+        )
+
+    if len(work) != EXPECTED_SIX_PROVINCE_ROWS:
+        raise ValueError(
+            "Six-province sensitivity subset row count does not match manuscript expectation "
+            f"N={EXPECTED_SIX_PROVINCE_ROWS}. Found N={len(work)}. "
+            "Verify benchmark reconstruction inputs and preprocessing outputs."
+        )
+
     return work.reset_index(drop=True)
 
 
@@ -129,6 +148,42 @@ def write_dataset_metadata(
     class_counts.insert(0, "dataset_fraction", float(dataset_fraction))
     class_counts.insert(0, "dataset_size", dataset_size_label)
     class_counts.to_csv(output_root / "dataset_class_counts.csv", index=False)
+
+
+def compute_expected_total_runs() -> int:
+    return (
+        len(SENSITIVITY_CLASSES)
+        * len(SAMPLE_SIZES)
+        * len(DATASET_FRACTIONS)
+        * len(MODELS)
+        * int(N_ITERATIONS)
+        * len(CONDITIONS)
+    )
+
+
+def write_run_design_metadata(*, output_root: Path, expected_total_runs: int) -> None:
+    output_root.mkdir(parents=True, exist_ok=True)
+    design = {
+        "class_column": CLASS_COLUMN,
+        "sensitivity_classes": SENSITIVITY_CLASSES,
+        "sample_sizes": SAMPLE_SIZES,
+        "dataset_fractions": DATASET_FRACTIONS,
+        "models": MODELS,
+        "iterations_per_class_condition": int(N_ITERATIONS),
+        "conditions": list(CONDITIONS),
+        "condition_definitions": {
+            "positive": "true source class is present in the candidate set",
+            "negative": "true source class is excluded from the candidate set",
+        },
+        "run_formula": (
+            f"{len(SENSITIVITY_CLASSES)} x {len(SAMPLE_SIZES)} x {len(DATASET_FRACTIONS)} x "
+            f"{len(MODELS)} x {int(N_ITERATIONS)} x {len(CONDITIONS)}"
+        ),
+        "expected_total_runs": int(expected_total_runs),
+        "expected_six_province_rows": int(EXPECTED_SIX_PROVINCE_ROWS),
+    }
+    with (output_root / "run_design_metadata.json").open("w", encoding="utf-8") as f:
+        json.dump(design, f, indent=2)
 
 
 def run_model(args: tuple[str, pd.DataFrame, int, str]) -> tuple[str, int, str, str, dict]:
@@ -261,7 +316,23 @@ def write_combined_summaries(
 
 
 def main() -> dict[tuple[str, int, str, str], dict | None]:
+    expected_total_runs = compute_expected_total_runs()
+    print(
+        "Planned run count: "
+        f"{expected_total_runs} "
+        f"({len(SENSITIVITY_CLASSES)} classes x {len(SAMPLE_SIZES)} sample sizes x "
+        f"{len(DATASET_FRACTIONS)} dataset fractions x {len(MODELS)} models x "
+        f"{N_ITERATIONS} iterations x {len(CONDITIONS)} conditions)"
+    )
+    if expected_total_runs != 172800:
+        raise ValueError(
+            "Sensitivity design must plan exactly 172,800 runs; "
+            f"computed {expected_total_runs}."
+        )
+
     full_df = load_coupled_dataset()
+    write_run_design_metadata(output_root=OUTPUT_ROOT, expected_total_runs=expected_total_runs)
+
     all_results: dict[tuple[str, int, str, str], dict | None] = {}
 
     for dataset_fraction in DATASET_FRACTIONS:

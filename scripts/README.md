@@ -4,6 +4,8 @@ This directory contains the notebooks and scripts used to reproduce the analyses
 
 With one stated exception, the materials in this folder were prepared as original reproducibility workflows for the manuscript. The exception is `0_raw_data_preprocessing.ipynb`, which is an adapted preprocessing workflow based on Petrelli et al. (2017) and is used here to reconstruct the benchmark input dataset from user-supplied source files placed under `data/raw/`.
 
+Provenance note for `0_raw_data_preprocessing.ipynb`: the notebook implementation in this repository was rebuilt for reproducibility from the published preprocessing method and project materials associated with Petrelli et al. (2017), including the project repository referenced in `data/raw/README.md`. This repository does not redistribute upstream data files.
+
 ## Contents and manuscript linkage
 
 1. `0_raw_data_preprocessing.ipynb`
@@ -12,11 +14,11 @@ Prepares the Italian benchmark dataset from the raw source tables expected under
 
 2. `1a_synthetic_scenario_gen.ipynb`
 
-Generates the six synthetic scenarios used to illustrate DIHS behavior under controlled geometric configurations. This notebook supports the manuscript's synthetic validation section and the synthetic scenario material discussed in Supporting Text S3.
+Generates the six synthetic scenarios used to illustrate DIHS behavior under controlled geometric configurations. This notebook supports the manuscript's synthetic validation section and the synthetic scenario material discussed in Supporting Text S2.
 
 3. `1b_synthetic_scenario_comparison.py`
 
-Runs the synthetic benchmarking comparison between DIHS and the alternative distance-based baselines used in the manuscript. It reproduces the comparative analysis associated with the synthetic validation section and the benchmark framing described in Supporting Text S2.
+Runs the synthetic benchmarking comparison between DIHS and the alternative distance-based baselines used in the manuscript. It reproduces the comparative analysis associated with the synthetic validation section and the benchmark framing described in Supporting Text S3.
 
 4. `2_caio_source_attribution.ipynb`
 

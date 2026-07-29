@@ -1,6 +1,6 @@
 """DIHS-based tephra correlation package."""
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 from DIHS_Correlator.api import (
     calibrate_perturbative_resolvedness_from_outputs,

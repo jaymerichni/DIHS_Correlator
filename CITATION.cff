@@ -2,7 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
 type: software
 title: "DIHS Tephra Correlator"
-version: "0.1.0"
+version: "1.0.0"
+license: BSD-3-Clause
 authors:
   - family-names: Aymerich
     given-names: Jan
@@ -32,5 +33,4 @@ keywords:
   - DIHS
 repository-code: "https://github.com/jaymerichni/DIHS_Correlator"
 url: "https://github.com/jaymerichni/DIHS_Correlator"
-# Add the Zenodo version DOI here when the archival software release is minted.
-# doi: 10.5281/zenodo.XXXXXXX
+# Add the Zenodo version DOI and release-date only when the archival release is published.

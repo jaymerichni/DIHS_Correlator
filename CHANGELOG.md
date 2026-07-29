@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 1.0.0 - Unreleased
 
 - Prepared the first archival-release metadata for the DIHS Tephra Correlator repository.
 - Bundled reproducibility notebooks and scripts for the synthetic scenario, Caio case-study, and dataset-size sensitivity workflows.
