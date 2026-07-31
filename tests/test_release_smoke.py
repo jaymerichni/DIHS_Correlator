@@ -6,8 +6,10 @@ import math
 import re
 
 import pandas as pd
+import pytest
 
 import DIHS_Correlator as dc
+from DIHS_Correlator.web.app import OUTPUT_ROOT_ENV, _resolve_output_dir
 
 
 def test_import_and_version_matches_pyproject() -> None:
@@ -93,3 +95,28 @@ def test_packaged_web_assets_present() -> None:
     assert (web_root / "static" / "app.css").is_file()
     assert (web_root / "static" / "app.js").is_file()
     assert (web_root / "static" / "branding" / "logo_web.png").is_file()
+
+
+def test_output_dirs_are_scoped_to_configured_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "exports"
+    monkeypatch.setenv(OUTPUT_ROOT_ENV, str(output_root))
+
+    resolved = Path(_resolve_output_dir("Results/demo_run", "Results")).resolve()
+
+    assert resolved == (output_root / "Results" / "demo_run").resolve()
+    assert resolved.is_dir()
+
+
+def test_output_dirs_reject_paths_outside_configured_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "exports"
+    outside = (tmp_path / "outside").resolve()
+    monkeypatch.setenv(OUTPUT_ROOT_ENV, str(output_root))
+
+    with pytest.raises(ValueError, match="must stay within"):
+        _resolve_output_dir(str(outside), "Results")

@@ -1,10 +1,12 @@
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.egg-info/
 build/
 dist/
 .venv/
 .venv_*/
+dihs_outputs/
 DIHS_Correlator_Zenodo_AGU_Audit.md
 data/raw/georock-data.csv
 data/raw/Results_Caio.xlsx

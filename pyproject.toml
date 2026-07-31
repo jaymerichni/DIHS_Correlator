@@ -26,16 +26,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-reproducibility = [
-    "ipykernel",
-    "jupyterlab",
-    "nbconvert",
-    "openpyxl",
+deploy = [
+    "waitress",
 ]
 test = [
-    "build",
     "pytest",
-    "twine",
 ]
 
 [project.urls]

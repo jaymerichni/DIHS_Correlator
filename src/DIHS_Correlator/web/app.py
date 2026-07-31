@@ -97,6 +97,10 @@ PLOT_SUFFIXES = {".svg", ".png", ".jpg", ".jpeg"}
 CACHE_TTL_SECONDS = 6 * 60 * 60
 APP_TITLE = "DIHS Tephra Correlator"
 SOFTWARE_DOI_ENV = "DIHS_CORRELATOR_SOFTWARE_DOI"
+OUTPUT_ROOT_ENV = "DIHS_CORRELATOR_OUTPUT_ROOT"
+HOST_ENV = "DIHS_CORRELATOR_HOST"
+PORT_ENV = "DIHS_CORRELATOR_PORT"
+DEFAULT_OUTPUT_ROOT_NAME = "dihs_outputs"
 TABLE_LABEL_OVERRIDES = {
     "hs_per_depth": "HS Per-Depth Table",
     "dihs_total": "DIHS Summary",
@@ -140,6 +144,7 @@ CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 DATASET_CACHE: dict[str, dict[str, Any]] = {}
 RESULT_CACHE: dict[str, dict[str, Any]] = {}
 JOB_CACHE: dict[str, dict[str, Any]] = {}
+CACHE_LOCK = threading.RLock()
 JOB_LOCK = threading.Lock()
 
 
@@ -177,36 +182,57 @@ def _read_uploaded_csv(uploaded_file) -> pd.DataFrame:
     return pd.read_csv(uploaded_file)
 
 
-def _resolve_user_path(value: str) -> str:
-    user_path = value.strip()
-    if not user_path:
-        return ""
-    path = Path(user_path)
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    return str(path.resolve())
+def _configured_output_root() -> Path:
+    configured_root = os.environ.get(OUTPUT_ROOT_ENV, "").strip()
+    output_root = Path(configured_root) if configured_root else (Path.cwd() / DEFAULT_OUTPUT_ROOT_NAME)
+    return output_root.resolve()
+
+
+def _resolve_output_dir(value: str, default_dir: str) -> str:
+    requested_text = value.strip() or default_dir
+    output_root = _configured_output_root()
+    requested_path = Path(requested_text)
+    candidate = (
+        requested_path.resolve()
+        if requested_path.is_absolute()
+        else (output_root / requested_path).resolve()
+    )
+    try:
+        candidate.relative_to(output_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Output directories must stay within '{output_root}'. "
+            f"Set {OUTPUT_ROOT_ENV} to change the base directory."
+        ) from exc
+    candidate.mkdir(parents=True, exist_ok=True)
+    return str(candidate)
 
 
 def _cleanup_cache() -> None:
     cutoff = time.time() - CACHE_TTL_SECONDS
-    expired_dataset_ids = [
-        dataset_id
-        for dataset_id, entry in DATASET_CACHE.items()
-        if entry["updated_at"] < cutoff
-    ]
-    for dataset_id in expired_dataset_ids:
-        DATASET_CACHE.pop(dataset_id, None)
+    expired_temp_roots: list[Path] = []
+    with CACHE_LOCK:
+        expired_dataset_ids = [
+            dataset_id
+            for dataset_id, entry in DATASET_CACHE.items()
+            if entry["updated_at"] < cutoff
+        ]
+        for dataset_id in expired_dataset_ids:
+            DATASET_CACHE.pop(dataset_id, None)
 
-    expired_result_ids = [
-        result_id
-        for result_id, entry in RESULT_CACHE.items()
-        if entry["updated_at"] < cutoff
-    ]
-    for result_id in expired_result_ids:
-        entry = RESULT_CACHE.pop(result_id, None)
-        temp_root = entry.get("temp_root") if entry else None
-        if temp_root:
-            shutil.rmtree(temp_root, ignore_errors=True)
+        expired_result_ids = [
+            result_id
+            for result_id, entry in RESULT_CACHE.items()
+            if entry["updated_at"] < cutoff
+        ]
+        for result_id in expired_result_ids:
+            entry = RESULT_CACHE.pop(result_id, None)
+            temp_root = entry.get("temp_root") if entry else None
+            if temp_root:
+                expired_temp_roots.append(temp_root)
+
+    for temp_root in expired_temp_roots:
+        shutil.rmtree(temp_root, ignore_errors=True)
 
     with JOB_LOCK:
         expired_job_ids = [
@@ -301,26 +327,29 @@ def _build_dataset_entry(df: pd.DataFrame, filename: str) -> dict[str, Any]:
         "unknown_lookup": unknown_lookup,
         "updated_at": time.time(),
     }
-    DATASET_CACHE[dataset_id] = entry
+    with CACHE_LOCK:
+        DATASET_CACHE[dataset_id] = entry
     return entry
 
 
 def _get_dataset_entry(dataset_id: str | None) -> dict[str, Any] | None:
     if not dataset_id:
         return None
-    entry = DATASET_CACHE.get(dataset_id)
-    if entry is not None:
-        entry["updated_at"] = time.time()
-    return entry
+    with CACHE_LOCK:
+        entry = DATASET_CACHE.get(dataset_id)
+        if entry is not None:
+            entry["updated_at"] = time.time()
+        return entry
 
 
 def _get_result_entry(result_id: str | None) -> dict[str, Any] | None:
     if not result_id:
         return None
-    entry = RESULT_CACHE.get(result_id)
-    if entry is not None:
-        entry["updated_at"] = time.time()
-    return entry
+    with CACHE_LOCK:
+        entry = RESULT_CACHE.get(result_id)
+        if entry is not None:
+            entry["updated_at"] = time.time()
+        return entry
 
 
 def _get_job_entry(job_id: str | None) -> dict[str, Any] | None:
@@ -703,13 +732,26 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
     internal_output_dir.mkdir(parents=True, exist_ok=True)
 
     if write_files:
-        common["output_dir"] = _resolve_user_path(output_dir_text or DEFAULT_OUTPUT_DIRS[mode])
-        common["plot_output_dir"] = _resolve_user_path(plot_output_dir_text) or None
+        common["output_dir"] = _resolve_output_dir(
+            output_dir_text,
+            DEFAULT_OUTPUT_DIRS[mode],
+        )
+        common["plot_output_dir"] = (
+            _resolve_output_dir(
+                plot_output_dir_text,
+                f"{DEFAULT_OUTPUT_DIRS[mode]}_plots",
+            )
+            if plot_output_dir_text
+            else None
+        )
     else:
         common["output_dir"] = str(internal_output_dir)
         if plot_everything:
             common["plot_output_dir"] = (
-                _resolve_user_path(plot_output_dir_text)
+                _resolve_output_dir(
+                    plot_output_dir_text,
+                    f"{DEFAULT_OUTPUT_DIRS[mode]}_plots",
+                )
                 if plot_output_dir_text
                 else str((temp_root / "plots").resolve())
             )
@@ -998,24 +1040,25 @@ def _store_result(
             }
         )
 
-    RESULT_CACHE[result_id] = {
-        "id": result_id,
-        "dataset_id": dataset_id,
-        "form_state": form_state,
-        "logs": logs,
-        "tables": table_entries,
-        "table_lookup": table_lookup,
-        "table_filenames": table_filenames,
-        "plots": plot_entries,
-        "plot_lookup": plot_lookup,
-        "artifacts": artifact_entries,
-        "artifact_lookup": artifact_lookup,
-        "details_json": json.dumps(_summarize_value(result), indent=2, default=str),
-        "output_dir": output_dir,
-        "write_files": write_files,
-        "temp_root": temp_root,
-        "updated_at": time.time(),
-    }
+    with CACHE_LOCK:
+        RESULT_CACHE[result_id] = {
+            "id": result_id,
+            "dataset_id": dataset_id,
+            "form_state": form_state,
+            "logs": logs,
+            "tables": table_entries,
+            "table_lookup": table_lookup,
+            "table_filenames": table_filenames,
+            "plots": plot_entries,
+            "plot_lookup": plot_lookup,
+            "artifacts": artifact_entries,
+            "artifact_lookup": artifact_lookup,
+            "details_json": json.dumps(_summarize_value(result), indent=2, default=str),
+            "output_dir": output_dir,
+            "write_files": write_files,
+            "temp_root": temp_root,
+            "updated_at": time.time(),
+        }
     return result_id
 
 
@@ -1106,11 +1149,6 @@ def _render_page(
     run_error: str | None = None,
     run_logs: str = "",
 ):
-    if dataset_entry is not None:
-        dataset_entry["updated_at"] = time.time()
-    if result_entry is not None:
-        result_entry["updated_at"] = time.time()
-
     if dataset_entry is None:
         dataset_payload = None
         form_payload = None
@@ -1318,8 +1356,9 @@ def create_app() -> Flask:
 
 def main() -> None:
     """Run the single-process local development server."""
-    port = int(os.environ.get("PORT", "5000"))
-    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+    host = os.environ.get(HOST_ENV, os.environ.get("HOST", "127.0.0.1"))
+    port = int(os.environ.get(PORT_ENV, os.environ.get("PORT", "5000")))
+    app.run(host=host, port=port, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":
