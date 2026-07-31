@@ -161,8 +161,6 @@ The app starts a local server on `http://127.0.0.1:5000` by default. It currentl
 
 The browser UI is designed for local, single-user runs. It provides progress tracking for perturbative and resolvedness workflows, collapsible result sections, and a zoom/pan plot viewer. Relative output directories entered in the form are resolved from the directory where you launch the app.
 
-If you want the banner to show the archived DOI after a Zenodo release, start the app with `DIHS_CORRELATOR_SOFTWARE_DOI` set in the environment.
-
 ## Input Expectations
 
 - Input object: `pandas.DataFrame`.
