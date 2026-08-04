@@ -41,7 +41,7 @@ Before running the Italian benchmark workflows:
 3. Run `scripts/0_raw_data_preprocessing.ipynb` to generate `data/processed/caio_italy_benchmark/full_italian_data.csv`.
 
 The generated benchmark CSV is expected to contain 3907 rows, the 17 normalized
-geochemical variables plus `lettercode`, and no accidental `Unnamed:` index columns.
+geochemical variables plus `lettercode`.
 
 ```bash
 jupyter nbconvert --execute --to notebook --inplace scripts/0_raw_data_preprocessing.ipynb

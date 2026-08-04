@@ -139,7 +139,7 @@ hs_per_depth = simple_run(
 
 ## Graphical Interface
 
-This repository includes a packaged Flask app for running the main workflows from a browser.
+This repository includes a packaged Flask app for running the main workflows from a browser. You can also use the online version at `https://tephracorrelator.geo3bcn.csic.es/`
 
 ```bash
 python -m pip install -e .
@@ -193,10 +193,6 @@ For command-by-command execution of the bundled notebooks and scripts, see [REPR
 
 This software is released under the BSD 3-Clause License. See [LICENSE](LICENSE).
 
-External benchmark inputs referenced in `data/raw/README.md` and the derived
-`data/processed/caio_italy_benchmark/full_italian_data.csv` are not redistributed in this repository.
-Those external data remain governed by their original source terms and citation requirements.
-
 ## Citation
 
-Software citation metadata for the repository snapshot are stored in [CITATION.cff](CITATION.cff). Final release-only fields such as a Zenodo DOI and archival release date should be added only when the release is published.
+Software citation metadata for the repository snapshot are stored in [CITATION.cff](CITATION.cff).
