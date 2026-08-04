@@ -22,7 +22,9 @@ if str(SRC_ROOT) not in sys.path:
 
 import DIHS_Correlator as dc
 
-DATA_PATH = REPO_ROOT / "data" / "processed" / "caio_italy_benchmark" / "full_italian_data.csv"
+DATA_PATH = (
+    REPO_ROOT / "data" / "processed" / "caio_italy_benchmark" / "full_italian_data.csv"
+)
 OUTPUT_ROOT = REPO_ROOT / "results" / "3_sensitivity_data_size"
 FEATURE_SPACE = "Coupled"
 TRANSFORM_TYPE = "clr"
@@ -34,7 +36,21 @@ N_ITERATIONS = 100
 RANDOM_STATE = 12345
 MAX_DEPTH = 100
 SENSITIVITY_CLASSES = ["AI", "PF", "EV", "RMP", "VV", "PI"]
-EXPECTED_SIX_PROVINCE_ROWS = 3479
+EXPECTED_SIX_PROVINCE_CLASS_COUNTS = {
+    "AI": 954,
+    "PF": 867,
+    "EV": 598,
+    "RMP": 418,
+    "VV": 415,
+    "PI": 226,
+}
+EXPECTED_SIX_PROVINCE_ROWS = sum(EXPECTED_SIX_PROVINCE_CLASS_COUNTS.values())
+EXPECTED_DATASET_ROWS_BY_FRACTION = {
+    0.25: 869,
+    0.50: 1740,
+    0.75: 2609,
+    1.00: 3478,
+}
 CONDITIONS = ("positive", "negative")
 
 
@@ -47,10 +63,7 @@ def clean_lettercode(df: pd.DataFrame) -> pd.DataFrame:
         work = work.drop(columns=["controlcode"])
 
     work[CLASS_COLUMN] = (
-        work[CLASS_COLUMN]
-        .astype(str)
-        .str.strip()
-        .replace({"0": "Caio", "0.0": "Caio"})
+        work[CLASS_COLUMN].astype(str).str.strip().replace({"0": "Caio", "0.0": "Caio"})
     )
 
     work = work[work[CLASS_COLUMN].isin(SENSITIVITY_CLASSES)]
@@ -61,9 +74,19 @@ def clean_lettercode(df: pd.DataFrame) -> pd.DataFrame:
             f"{SENSITIVITY_CLASSES}. Found {work[CLASS_COLUMN].nunique()}."
         )
 
+    observed_class_counts = work[CLASS_COLUMN].value_counts().to_dict()
+    if observed_class_counts != EXPECTED_SIX_PROVINCE_CLASS_COUNTS:
+        raise ValueError(
+            "Six-province class counts do not match the benchmark reconstructed "
+            "from the pinned Petrelli source files. "
+            f"Expected {EXPECTED_SIX_PROVINCE_CLASS_COUNTS}; "
+            f"found {observed_class_counts}."
+        )
+
     if len(work) != EXPECTED_SIX_PROVINCE_ROWS:
         raise ValueError(
-            "Six-province sensitivity subset row count does not match manuscript expectation "
+            "Six-province sensitivity subset row count does not match the "
+            "reconstructed benchmark dataset: "
             f"N={EXPECTED_SIX_PROVINCE_ROWS}. Found N={len(work)}. "
             "Verify benchmark reconstruction inputs and preprocessing outputs."
         )
@@ -102,15 +125,11 @@ def stratified_rescale_dataframe(
         return df.copy().reset_index(drop=True)
 
     class_counts = df[class_column].value_counts(sort=False)
-    target_total = int(round(len(df) * fraction))
     exact_counts = class_counts.astype(float) * fraction
-    allocated_counts = np.floor(exact_counts).astype(int)
-
-    remainder = target_total - int(allocated_counts.sum())
-    if remainder > 0:
-        fractional_parts = (exact_counts - allocated_counts).sort_values(ascending=False)
-        for class_value in fractional_parts.index[:remainder]:
-            allocated_counts.loc[class_value] += 1
+    allocated_counts = pd.Series(
+        np.rint(exact_counts.to_numpy()).astype(int),
+        index=exact_counts.index,
+    )
 
     rng = np.random.default_rng(random_state)
     sampled_frames: list[pd.DataFrame] = []
@@ -125,7 +144,20 @@ def stratified_rescale_dataframe(
         sampled_frames.append(class_df.iloc[np.sort(chosen_positions)])
 
     scaled_df = pd.concat(sampled_frames, ignore_index=False)
-    scaled_df = scaled_df.sample(frac=1.0, random_state=random_state).reset_index(drop=True)
+    scaled_df = scaled_df.sample(frac=1.0, random_state=random_state).reset_index(
+        drop=True
+    )
+
+    observed_counts = scaled_df[class_column].value_counts(sort=False)
+    observed_counts = observed_counts.reindex(
+        allocated_counts.index, fill_value=0
+    ).astype(int)
+    if not observed_counts.equals(allocated_counts):
+        raise RuntimeError(
+            "Stratified rescaling produced unexpected class counts: "
+            f"expected {allocated_counts.to_dict()}, found {observed_counts.to_dict()}."
+        )
+
     return scaled_df
 
 
@@ -181,14 +213,23 @@ def write_run_design_metadata(*, output_root: Path, expected_total_runs: int) ->
         ),
         "expected_total_runs": int(expected_total_runs),
         "expected_six_province_rows": int(EXPECTED_SIX_PROVINCE_ROWS),
+        "expected_six_province_class_counts": EXPECTED_SIX_PROVINCE_CLASS_COUNTS,
+        "expected_dataset_rows_by_fraction": {
+            format_dataset_size_label(fraction): int(n_rows)
+            for fraction, n_rows in EXPECTED_DATASET_ROWS_BY_FRACTION.items()
+        },
     }
     with (output_root / "run_design_metadata.json").open("w", encoding="utf-8") as f:
         json.dump(design, f, indent=2)
 
 
-def run_model(args: tuple[str, pd.DataFrame, int, str]) -> tuple[str, int, str, str, dict]:
+def run_model(
+    args: tuple[str, pd.DataFrame, int, str],
+) -> tuple[str, int, str, str, dict]:
     model, df, sample_size, dataset_size_label = args
-    output_dir = OUTPUT_ROOT / dataset_size_label / str(sample_size) / FEATURE_SPACE / model
+    output_dir = (
+        OUTPUT_ROOT / dataset_size_label / str(sample_size) / FEATURE_SPACE / model
+    )
 
     result = dc.pseudo_unknown_run(
         df=df,
@@ -331,7 +372,9 @@ def main() -> dict[tuple[str, int, str, str], dict | None]:
         )
 
     full_df = load_coupled_dataset()
-    write_run_design_metadata(output_root=OUTPUT_ROOT, expected_total_runs=expected_total_runs)
+    write_run_design_metadata(
+        output_root=OUTPUT_ROOT, expected_total_runs=expected_total_runs
+    )
 
     all_results: dict[tuple[str, int, str, str], dict | None] = {}
 
@@ -343,6 +386,12 @@ def main() -> dict[tuple[str, int, str, str], dict | None]:
             class_column=CLASS_COLUMN,
             random_state=RANDOM_STATE,
         )
+        expected_dataset_rows = EXPECTED_DATASET_ROWS_BY_FRACTION[dataset_fraction]
+        if len(dataset_df) != expected_dataset_rows:
+            raise RuntimeError(
+                f"Unexpected row count for {dataset_size_label}: "
+                f"expected {expected_dataset_rows}, found {len(dataset_df)}."
+            )
         dataset_results: dict[tuple[int, str, str], dict | None] = {}
 
         print(
@@ -354,8 +403,7 @@ def main() -> dict[tuple[str, int, str, str], dict | None]:
             print(f"Starting sample size: {sample_size}")
 
             tasks = [
-                (model, dataset_df, sample_size, dataset_size_label)
-                for model in MODELS
+                (model, dataset_df, sample_size, dataset_size_label) for model in MODELS
             ]
 
             with ProcessPoolExecutor(max_workers=len(MODELS)) as executor:
@@ -374,7 +422,11 @@ def main() -> dict[tuple[str, int, str, str], dict | None]:
                         ) = future.result()
 
                         dataset_results[
-                            (finished_sample_size, finished_feature_space, finished_model)
+                            (
+                                finished_sample_size,
+                                finished_feature_space,
+                                finished_model,
+                            )
                         ] = result
                         all_results[
                             (
