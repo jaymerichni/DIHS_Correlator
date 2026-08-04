@@ -14,18 +14,41 @@ def _prepare_plot_df(
     max_depth: Optional[int] = None,
     unknown_class=0,
 ):
+    """Prepare HS rows for plotting.
+
+    Internal DIHS/HS depth indices are zero-based for non-root levels, where
+    depth_level == 0 is the first real split. When force_root_one=True, this
+    helper only changes display rows: it prepends a synthetic root at displayed
+    depth 0 and shifts retained implementation depths by +1.
+    """
     d = df.copy()
     d = d[d["neighbor_unit"].astype(str) != str(unknown_class)]
     if d.empty:
         return d
 
-    if force_root_one:
-        d.loc[d["depth_level"] == 0, value_col] = 1.0
-        if std_col is not None and std_col in d.columns:
-            d.loc[d["depth_level"] == 0, std_col] = 0.0
-
     if max_depth is not None:
         d = d[d["depth_level"] <= int(max_depth)]
+        if d.empty:
+            return d
+
+    if not force_root_one:
+        return d
+
+    # Create synthetic roots from each neighbor's shallowest retained row.
+    root_rows = (
+        d.sort_values("depth_level")
+        .groupby("neighbor_unit", as_index=False, sort=False)
+        .first()
+        .copy()
+    )
+    root_rows["depth_level"] = 0
+    root_rows[value_col] = 1.0
+    if std_col is not None and std_col in root_rows.columns:
+        root_rows[std_col] = 0.0
+
+    shifted = d.copy()
+    shifted["depth_level"] = shifted["depth_level"].astype(int) + 1
+    d = pd.concat([root_rows, shifted], ignore_index=True)
 
     return d
 
@@ -98,7 +121,13 @@ def plot_hs_curves(
     observed_max_depth = int(d["depth_level"].max())
     if max_depth is not None:
         depth_min = 0
-        depth_max = min(int(max_depth), observed_max_depth)
+        # max_depth is applied on implementation indices inside _prepare_plot_df.
+        # With force_root_one=True, displayed depths are shifted by +1 and include
+        # a synthetic root at 0, so use the transformed observed maximum.
+        if force_root_one:
+            depth_max = observed_max_depth
+        else:
+            depth_max = min(int(max_depth), observed_max_depth)
     else:
         depth_min = int(d["depth_level"].min())
         depth_max = observed_max_depth

@@ -571,7 +571,7 @@ def perturbative_simple_run_workflow(
                 std_col="harmonic_score_std",
                 with_shade=True,
                 force_root_one=True,
-                max_depth=common_depth_level,
+                max_depth=chosen_integration_depth,
                 output_path=hs_curve_path,
                 title=f"HS mean +/- SD vs depth | {model_type}",
                 unknown_class=unknown_class,
