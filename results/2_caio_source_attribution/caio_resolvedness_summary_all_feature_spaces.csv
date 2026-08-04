@@ -1,0 +1,10 @@
+feature_space,feature_space_label,model_type,model_label,transform_type,common_integration_depth,top1_class_distribution,top2_class_distribution,top1_mean_dihs,top1_std_dihs,ensemble_mean_delta_dihs,ensemble_std_delta_dihs,empirical_resolvedness,pseudo_unknown_iterations,perturbative_iterations,pseudo_unknown_sample_size,summary_source
+coupled,"Coupled major + trace elements",agglomerative,Agg.-Ward,clr,14,"100% RMP","75% IAVP; 21% ERP; 4% TMP",0.55,0.03,0.14,0.03,0.90,100,100,17,"Manuscript Table caio_benchmark"
+coupled,"Coupled major + trace elements",kmeans,KMeans,clr,14,"100% RMP","71% IAVP; 29% ERP",0.51,0.02,0.11,0.02,0.93,100,100,17,"Manuscript Table caio_benchmark"
+coupled,"Coupled major + trace elements",gaussian,GMM,clr,14,"100% RMP","84% ERP; 16% IAVP",0.53,0.02,0.14,0.03,0.77,100,100,17,"Manuscript Table caio_benchmark"
+major_only,"Major elements",agglomerative,Agg.-Ward,clr,14,"100% RMP","56% VV; 44% ERP",0.54,0.03,0.10,0.04,0.87,100,100,17,"Manuscript Table caio_benchmark"
+major_only,"Major elements",kmeans,KMeans,clr,14,"100% RMP","96% VV; 3% ERP; 1% IAVP",0.56,0.03,0.12,0.03,0.98,100,100,17,"Manuscript Table caio_benchmark"
+major_only,"Major elements",gaussian,GMM,clr,14,"100% RMP","99% ERP; 1% VV",0.56,0.02,0.09,0.01,0.82,100,100,17,"Manuscript Table caio_benchmark"
+trace_only,"Trace elements",agglomerative,Agg.-Ward,scaled,14,"93% RMP; 7% ERP","90% ERP; 7% RMP; 1% TMP; 1% MV; 1% IAVP",0.52,0.06,0.08,0.05,0.75,100,100,17,"Manuscript Table caio_benchmark"
+trace_only,"Trace elements",kmeans,KMeans,scaled,14,"92% RMP; 8% ERP","79% ERP; 13% VV; 8% RMP",0.42,0.03,0.06,0.03,0.75,100,100,17,"Manuscript Table caio_benchmark"
+trace_only,"Trace elements",gaussian,GMM,scaled,14,"100% RMP","75% IAVP; 25% ERP",0.53,0.03,0.11,0.03,0.91,100,100,17,"Manuscript Table caio_benchmark"

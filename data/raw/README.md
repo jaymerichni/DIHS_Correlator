@@ -19,7 +19,12 @@ Petrelli, M., Bizzarri, R., Morgavi, D., Baldanza, A., and Perugini, D. (2017). 
 
 Project materials associated with the Petrelli et al. (2017) study were referenced in the original project repository:
 
-- `https://bitbucket.org/maurizio_petrelli/petrelli_et_al_2016_quaternary_geochronology/src/master/`
+- `https://bitbucket.org/maurizio_petrelli/petrelli_et_al_2016_quaternary_geochronology/src/75b98236f569114deb0f86d3448efedcee9b10c5/`
+
+Expected SHA-256 checksums for the upstream files used by this repository:
+
+- `georock-data.csv`: `ce0ee5db593c74b72a5b020d5bb304ff39bef11ba5e3432df27ddb4e68459eb3`
+- `Results_Caio.xlsx`: `2dc2f9483abf76be309b9ab4b467054eb2cfd57b39138b3b497c205b8e746499`
 
 ## How to use this directory
 
@@ -29,6 +34,8 @@ Project materials associated with the Petrelli et al. (2017) study were referenc
 4. Run `scripts/0_raw_data_preprocessing.ipynb` to generate the local processed benchmark CSV needed by the Caio and sensitivity workflows.
 
 ## Expected processed output validation
+
+The validation expectations below apply to those exact upstream file versions (the pinned commit and SHA-256 checksums listed above).
 
 The notebook should generate `data/processed/caio_italy_benchmark/full_italian_data.csv` with:
 
