@@ -179,6 +179,10 @@ Depending on the function and flags, workflows can return:
 
 Typical output directories include `Results*` folders for metrics and trees, `Plots` folders for SVG figures, and model-specific subfolders for triple workflows.
 
+### Hierarchical-depth indexing convention
+
+Hierarchical depths are reported in the manuscript using one-based numbering for the non-root levels (depths 1–15). In the implementation, `integration_depth` is a zero-based index over these non-root levels. Therefore, `integration_depth=14` selects the fifteenth non-root hierarchical level, corresponding to depth 15 in the manuscript. Depth 0 in the figures represents the root of the hierarchy and is shown for reference only; it is not included in the DIHS integration.
+
 ## Methodological Notes
 
 - Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
