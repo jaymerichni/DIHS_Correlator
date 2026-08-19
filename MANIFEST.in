@@ -10,6 +10,7 @@ recursive-include scripts *.py *.ipynb *.md
 recursive-include src/DIHS_Correlator/web/templates *.html
 recursive-include src/DIHS_Correlator/web/static *.css *.js *.png
 
+recursive-include results *.md
 recursive-include results/1_benchmarking_comparison *.csv
 recursive-include results/2_caio_source_attribution *.csv
-recursive-include results/3_sensitivity_data_size *.csv *.md
+recursive-include results/3_sensitivity_data_size *.csv
