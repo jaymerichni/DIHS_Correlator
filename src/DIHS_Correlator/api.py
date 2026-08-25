@@ -21,6 +21,7 @@ from DIHS_Correlator.workflows.single_run import (
     run_single_model_workflow,
     triple_run_workflow,
 )
+from DIHS_Correlator.workflows.utils import _build_model_params
 
 def simple_run(
     *,
@@ -42,7 +43,15 @@ def simple_run(
     save_untransformed: bool = False,
     verbose: bool = True,
     return_details: bool = False,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
+    model_params = _build_model_params(
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
+    )
     result = run_single_model_workflow(
         df=df,
         model_type=model_type,
@@ -61,6 +70,7 @@ def simple_run(
         save_cluster_data=save_cluster_data,
         save_untransformed=save_untransformed,
         verbose=verbose,
+        model_params=model_params,
     )
     if return_details:
         return result
@@ -86,8 +96,17 @@ def triple_run(
     save_untransformed: bool = False,
     verbose: bool = True,
     return_details: bool = False,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     """Run agglomerative, kmeans and gaussian under one shared configuration."""
+    model_params = _build_model_params(
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
+    )
     combined = triple_run_workflow(
         df=df,
         transform_type=transform_type,
@@ -105,6 +124,8 @@ def triple_run(
         save_cluster_data=save_cluster_data,
         save_untransformed=save_untransformed,
         verbose=verbose,
+        n_jobs=n_jobs,
+        model_params=model_params,
     )
     if return_details:
         return combined
@@ -139,6 +160,11 @@ def perturbative_simple_run(
     verbose: bool = True,
     return_details: bool = False,
     progress_callback=None,
+    uncertainty_config: dict[str, Any] | None = None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     """Perturbative ensemble run for one model."""
     result = perturbative_simple_run_workflow(
@@ -167,6 +193,11 @@ def perturbative_simple_run(
         save_untransformed=save_untransformed,
         verbose=verbose,
         progress_callback=progress_callback,
+        uncertainty_config=uncertainty_config,
+        n_jobs=n_jobs,
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
     )
     if return_details:
         return result
@@ -200,6 +231,11 @@ def perturbative_triple_run(
     verbose: bool = True,
     return_details: bool = False,
     progress_callback=None,
+    uncertainty_config: dict[str, Any] | None = None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     """Perturbative ensemble run for all three models."""
     result = perturbative_triple_run_workflow(
@@ -227,6 +263,11 @@ def perturbative_triple_run(
         save_untransformed=save_untransformed,
         verbose=verbose,
         progress_callback=progress_callback,
+        uncertainty_config=uncertainty_config,
+        n_jobs=n_jobs,
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
     )
     if return_details:
         return result
@@ -254,6 +295,10 @@ def pseudo_unknown_run(
     plot_output_dir: str | None = None,
     verbose: bool = True,
     return_details: bool = False,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     """
     Run pseudo-unknown experiments for one model.
@@ -277,6 +322,10 @@ def pseudo_unknown_run(
         output_dir=output_dir,
         plot_output_dir=plot_output_dir,
         verbose=verbose,
+        n_jobs=n_jobs,
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
     )
     if return_details:
         return result
@@ -394,6 +443,11 @@ def perturbative_triple_run_with_resolvedness(
     verbose: bool = True,
     return_details: bool = False,
     progress_callback=None,
+    uncertainty_config: dict[str, Any] | None = None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     """Run perturbative triple correlation plus Top-1 pseudo-unknown resolvedness calibration."""
     result = perturbative_triple_run_with_resolvedness_workflow(
@@ -427,6 +481,11 @@ def perturbative_triple_run_with_resolvedness(
         verbose=verbose,
         return_details=return_details,
         progress_callback=progress_callback,
+        uncertainty_config=uncertainty_config,
+        n_jobs=n_jobs,
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
     )
     if return_details:
         return result

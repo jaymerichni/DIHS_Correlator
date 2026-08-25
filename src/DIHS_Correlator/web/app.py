@@ -91,6 +91,7 @@ DISPLAY_TABLE_KEYS = {
     "perturbative_calibration_summary",
     "perturbative_regime_summary",
     "pairwise_total_mean_matrix",
+    "uncertainty_sources",
 }
 RESOLVEDNESS_RESULT_SENTINELS = {"models", "target_precisions", "unknown_class"}
 PLOT_SUFFIXES = {".svg", ".png", ".jpg", ".jpeg"}
@@ -106,6 +107,7 @@ TABLE_LABEL_OVERRIDES = {
     "margin_summary": "Margin Summary",
     "pairwise_total_matrix": "Pairwise Total Matrix",
     "pairwise_total_mean_matrix": "Mean Pairwise Matrix",
+    "uncertainty_sources": "Uncertainty Coverage Sources",
     "thresholds_by_target_precision": "Thresholds By Target Precision",
     "perturbative_calibration_summary": "Perturbative Calibration Summary",
     "perturbative_regime_summary": "Perturbative Regime Summary",
@@ -171,6 +173,16 @@ def _parse_float_list(value: str) -> list[float] | None:
     if not text:
         return None
     return [float(part.strip()) for part in text.split(",") if part.strip()]
+
+
+def _parse_optional_json_object(value: str) -> dict[str, Any] | None:
+    text = value.strip()
+    if not text:
+        return None
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise ValueError("Uncertainty configuration must be a JSON object.")
+    return parsed
 
 
 def _read_uploaded_csv(uploaded_file) -> pd.DataFrame:
@@ -268,8 +280,13 @@ def _default_form_state(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "n_iterations": 100,
         "major_error": 0.02,
         "trace_error": 0.10,
+        "n_jobs": 1,
+        "gmm_n_init": 10,
+        "gmm_covariance_type": "diag",
+        "gmm_reg_covar": 1e-4,
         "perturbation_seed_text": "",
         "integration_depth_text": "",
+        "uncertainty_config_text": "",
         "pseudo_unknown_iterations": 100,
         "pseudo_unknown_sample_size_text": "",
         "pseudo_unknown_random_state_text": "",
@@ -430,6 +447,19 @@ def _form_state_from_request(dataset_entry: dict[str, Any]) -> dict[str, Any]:
                 "trace_error",
                 str(state["trace_error"]),
             ).strip(),
+            "n_jobs": request.form.get("n_jobs", str(state["n_jobs"])).strip(),
+            "gmm_n_init": request.form.get(
+                "gmm_n_init",
+                str(state["gmm_n_init"]),
+            ).strip(),
+            "gmm_covariance_type": request.form.get(
+                "gmm_covariance_type",
+                state["gmm_covariance_type"],
+            ).strip(),
+            "gmm_reg_covar": request.form.get(
+                "gmm_reg_covar",
+                str(state["gmm_reg_covar"]),
+            ).strip(),
             "perturbation_seed_text": request.form.get(
                 "perturbation_seed",
                 state["perturbation_seed_text"],
@@ -437,6 +467,10 @@ def _form_state_from_request(dataset_entry: dict[str, Any]) -> dict[str, Any]:
             "integration_depth_text": request.form.get(
                 "integration_depth",
                 state["integration_depth_text"],
+            ).strip(),
+            "uncertainty_config_text": request.form.get(
+                "uncertainty_config",
+                state["uncertainty_config_text"],
             ).strip(),
             "pseudo_unknown_iterations": request.form.get(
                 "pseudo_unknown_iterations",
@@ -485,6 +519,9 @@ def _run_selected_mode(
             df=df,
             model_type=advanced["model_type"],
             **common,
+            gmm_n_init=advanced["gmm_n_init"],
+            gmm_covariance_type=advanced["gmm_covariance_type"],
+            gmm_reg_covar=advanced["gmm_reg_covar"],
             return_details=True,
         )
         if progress_callback is not None:
@@ -509,6 +546,10 @@ def _run_selected_mode(
         result = triple_run(
             df=df,
             **common,
+            n_jobs=advanced["n_jobs"],
+            gmm_n_init=advanced["gmm_n_init"],
+            gmm_covariance_type=advanced["gmm_covariance_type"],
+            gmm_reg_covar=advanced["gmm_reg_covar"],
             return_details=True,
         )
         if progress_callback is not None:
@@ -533,6 +574,11 @@ def _run_selected_mode(
             trace_error=advanced["trace_error"],
             perturbation_seed=advanced["perturbation_seed"],
             integration_depth=advanced["integration_depth"],
+            uncertainty_config=advanced["uncertainty_config"],
+            n_jobs=advanced["n_jobs"],
+            gmm_n_init=advanced["gmm_n_init"],
+            gmm_covariance_type=advanced["gmm_covariance_type"],
+            gmm_reg_covar=advanced["gmm_reg_covar"],
             return_details=True,
             progress_callback=progress_callback,
         )
@@ -548,6 +594,11 @@ def _run_selected_mode(
             trace_error=advanced["trace_error"],
             perturbation_seed=advanced["perturbation_seed"],
             integration_depth=advanced["integration_depth"],
+            uncertainty_config=advanced["uncertainty_config"],
+            n_jobs=advanced["n_jobs"],
+            gmm_n_init=advanced["gmm_n_init"],
+            gmm_covariance_type=advanced["gmm_covariance_type"],
+            gmm_reg_covar=advanced["gmm_reg_covar"],
             return_details=True,
             progress_callback=progress_callback,
         )
@@ -567,6 +618,11 @@ def _run_selected_mode(
         target_precisions=advanced["target_precisions"],
         min_runs_above_threshold=advanced["min_runs_above_threshold"],
         integration_depth=advanced["integration_depth"],
+        uncertainty_config=advanced["uncertainty_config"],
+        n_jobs=advanced["n_jobs"],
+        gmm_n_init=advanced["gmm_n_init"],
+        gmm_covariance_type=advanced["gmm_covariance_type"],
+        gmm_reg_covar=advanced["gmm_reg_covar"],
         return_details=True,
         progress_callback=progress_callback,
     )
@@ -629,8 +685,13 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "n_iterations": int(request.form.get("n_iterations", "100")),
         "major_error": float(request.form.get("major_error", "0.02")),
         "trace_error": float(request.form.get("trace_error", "0.10")),
+        "n_jobs": int(request.form.get("n_jobs", "1")),
+        "gmm_n_init": int(request.form.get("gmm_n_init", "10")),
+        "gmm_covariance_type": request.form.get("gmm_covariance_type", "diag").strip(),
+        "gmm_reg_covar": float(request.form.get("gmm_reg_covar", "0.0001")),
         "perturbation_seed_text": request.form.get("perturbation_seed", "").strip(),
         "integration_depth_text": request.form.get("integration_depth", "").strip(),
+        "uncertainty_config_text": request.form.get("uncertainty_config", "").strip(),
         "pseudo_unknown_iterations": int(
             request.form.get("pseudo_unknown_iterations", "100")
         ),
@@ -684,6 +745,10 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "trace_cols": form_state["trace_cols"] or None,
         "major_error": form_state["major_error"],
         "trace_error": form_state["trace_error"],
+        "n_jobs": form_state["n_jobs"],
+        "gmm_n_init": form_state["gmm_n_init"],
+        "gmm_covariance_type": form_state["gmm_covariance_type"],
+        "gmm_reg_covar": form_state["gmm_reg_covar"],
         "perturbation_seed": _parse_optional_int(form_state["perturbation_seed_text"]),
         "pseudo_unknown_iterations": form_state["pseudo_unknown_iterations"],
         "pseudo_unknown_sample_size": _parse_optional_int(
@@ -695,6 +760,9 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "target_precisions": _parse_float_list(form_state["target_precisions_text"]),
         "min_runs_above_threshold": form_state["min_runs_above_threshold"],
         "integration_depth": _parse_optional_int(form_state["integration_depth_text"]),
+        "uncertainty_config": _parse_optional_json_object(
+            form_state["uncertainty_config_text"]
+        ),
     }
 
     temp_root = CACHE_ROOT / "runs" / uuid4().hex

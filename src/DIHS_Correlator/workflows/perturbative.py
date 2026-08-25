@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any, Iterable
 
 import matplotlib.pyplot as plt
@@ -13,10 +14,19 @@ from DIHS_Correlator.workflows.single_run import (
 )
 
 from DIHS_Correlator.workflows.utils import (
+    _build_model_params,
+    _clamp_worker_threads,
     _log,
+    _normalize_n_jobs,
+    _prepare_working_df,
     _print_progress,
     _resolve_major_trace_columns,
     _resolve_unknown_class,
+)
+from DIHS_Correlator.workflows.uncertainty import (
+    compile_uncertainty_model,
+    perturb_dataframe,
+    uncertainty_summary_frame,
 )
 
 
@@ -372,6 +382,77 @@ def _plot_top1_fraction(top1_df: pd.DataFrame, output_path: str | None = None):
         plt.close(fig)
 
 
+def _run_perturbative_iteration(
+    *,
+    base_df: pd.DataFrame,
+    uncertainty_model,
+    iteration: int,
+    iteration_seed: int,
+    model_type: str,
+    transform_type: str,
+    unknown_class: Any,
+    class_column: str,
+    random_state: int | None,
+    compute_pairwise: bool,
+    write_files: bool,
+    output_dir: str,
+    max_depth: int,
+    exclude_columns,
+    pairwise_plot_order: list[Any] | None,
+    save_cluster_data: bool,
+    save_untransformed: bool,
+    model_params: dict[str, Any] | None,
+) -> dict[str, Any]:
+    rng = np.random.default_rng(int(iteration_seed))
+    perturbed = perturb_dataframe(base_df, model=uncertainty_model, rng=rng)
+    iter_out = (
+        os.path.join(output_dir, f"iter_{iteration:03d}")
+        if (write_files or save_cluster_data)
+        else output_dir
+    )
+    if write_files or save_cluster_data:
+        os.makedirs(iter_out, exist_ok=True)
+
+    run = run_single_model_workflow(
+        df=perturbed,
+        model_type=model_type,
+        transform_type=transform_type,
+        unknown_sample=unknown_class,
+        class_column=class_column,
+        random_state=random_state,
+        compute_pairwise=compute_pairwise,
+        plot_everything=False,
+        write_files=write_files,
+        output_dir=iter_out,
+        plot_output_dir=None,
+        max_depth=max_depth,
+        exclude_columns=exclude_columns,
+        pairwise_plot_order=pairwise_plot_order,
+        save_cluster_data=save_cluster_data,
+        save_untransformed=save_untransformed,
+        verbose=False,
+        model_params=model_params,
+    )
+
+    return {
+        "iteration": int(iteration),
+        "iteration_dir": iter_out if (write_files or save_cluster_data) else None,
+        "hs_per_depth": run["hs_per_depth"],
+        "dihs_total": run["dihs_total"],
+        "pairwise_per_depth_matrices": run["pairwise_per_depth_matrices"],
+    }
+
+
+def _run_perturbative_iteration_parallel_task(kwargs: dict[str, Any]) -> dict[str, Any]:
+    _clamp_worker_threads()
+    return _run_perturbative_iteration(**kwargs)
+
+
+def _run_perturbative_model_parallel_task(kwargs: dict[str, Any]) -> dict[str, Any]:
+    _clamp_worker_threads()
+    return perturbative_simple_run_workflow(**kwargs)
+
+
 def perturbative_simple_run_workflow(
     *,
     df: pd.DataFrame,
@@ -400,27 +481,54 @@ def perturbative_simple_run_workflow(
     save_untransformed: bool = False,
     verbose: bool = True,
     progress_callback=None,
+    uncertainty_config: dict[str, Any] | None = None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
+    work_df = _prepare_working_df(df, class_column=class_column)
     major_cols_resolved, trace_cols_resolved = _resolve_major_trace_columns(
-        df, major_cols, trace_cols, class_column=class_column
+        work_df, major_cols, trace_cols, class_column=class_column
     )
-    unknown_class = _resolve_unknown_class(df, unknown_sample, class_column=class_column)
+    unknown_class = _resolve_unknown_class(work_df, unknown_sample, class_column=class_column)
+    uncertainty_model = compile_uncertainty_model(
+        work_df,
+        class_column=class_column,
+        uncertainty_config=uncertainty_config,
+        major_cols=major_cols_resolved,
+        trace_cols=trace_cols_resolved,
+        major_error=major_error,
+        trace_error=trace_error,
+    )
+    uncertainty_sources = uncertainty_summary_frame(uncertainty_model)
+    model_params = _build_model_params(
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
+    )
+    total_iterations = int(n_iterations)
+    if total_iterations <= 0:
+        raise ValueError("n_iterations must be > 0.")
+    worker_count = min(_normalize_n_jobs(n_jobs), total_iterations)
+
     _log(verbose, f"Starting perturbative run for model='{model_type}'")
     _log(
         verbose,
-        f"Unknown class resolved to: {unknown_class} | Iterations: {n_iterations} | Max depth: {max_depth}",
+        f"Unknown class resolved to: {unknown_class} | Iterations: {total_iterations} | Max depth: {max_depth}",
     )
     _log(
         verbose,
-        f"Feature-space perturbation setup (shown once): majors={len(major_cols_resolved)}, traces={len(trace_cols_resolved)}",
+        (
+            "Feature-space perturbation setup (shown once): "
+            f"majors={len(major_cols_resolved)}, traces={len(trace_cols_resolved)}, "
+            f"covered cells={uncertainty_model.summary['resolved_cells']}, "
+            f"missing cells={uncertainty_model.summary['missing_cells']}, "
+            f"n_jobs={worker_count}"
+        ),
     )
-    rng = np.random.default_rng(perturbation_seed)
-
-    hs_iters = []
-    dihs_iters = []
-    pairwise_depth_iterations = []
-    artifacts = {"iteration_dirs": []}
-    total_iterations = int(n_iterations)
+    for warning in uncertainty_model.summary.get("warnings", []):
+        _log(verbose, f"Uncertainty warning: {warning}")
 
     _emit_progress(
         progress_callback,
@@ -431,66 +539,104 @@ def perturbative_simple_run_workflow(
         fraction=0.0,
     )
 
-    for it in range(total_iterations):
-        perturbed = df.copy()
-        if major_cols_resolved:
-            x_major = perturbed[major_cols_resolved].to_numpy(dtype=float)
-            eps_major = rng.uniform(-major_error, major_error, size=x_major.shape)
-            perturbed[major_cols_resolved] = x_major * (1.0 + eps_major)
-        if trace_cols_resolved:
-            x_trace = perturbed[trace_cols_resolved].to_numpy(dtype=float)
-            eps_trace = rng.uniform(-trace_error, trace_error, size=x_trace.shape)
-            perturbed[trace_cols_resolved] = x_trace * (1.0 + eps_trace)
+    seed_rng = np.random.default_rng(perturbation_seed)
+    iteration_seeds = seed_rng.integers(
+        0,
+        np.iinfo(np.uint64).max,
+        size=total_iterations,
+        dtype=np.uint64,
+    )
+    iteration_kwargs = [
+        {
+            "base_df": work_df,
+            "uncertainty_model": uncertainty_model,
+            "iteration": it,
+            "iteration_seed": int(iteration_seeds[it]),
+            "model_type": model_type,
+            "transform_type": transform_type,
+            "unknown_class": unknown_class,
+            "class_column": class_column,
+            "random_state": random_state,
+            "compute_pairwise": compute_pairwise,
+            "write_files": write_files,
+            "output_dir": output_dir,
+            "max_depth": max_depth,
+            "exclude_columns": exclude_columns,
+            "pairwise_plot_order": pairwise_plot_order,
+            "save_cluster_data": save_cluster_data,
+            "save_untransformed": save_untransformed,
+            "model_params": model_params,
+        }
+        for it in range(total_iterations)
+    ]
 
-        iter_out = (
-            os.path.join(output_dir, f"iter_{it:03d}")
-            if (write_files or save_cluster_data)
-            else output_dir
-        )
-        if write_files or save_cluster_data:
-            os.makedirs(iter_out, exist_ok=True)
-            artifacts["iteration_dirs"].append(iter_out)
+    iteration_results = []
+    completed_iterations = 0
+    if worker_count > 1:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            future_to_iteration = {
+                executor.submit(_run_perturbative_iteration_parallel_task, kwargs): kwargs[
+                    "iteration"
+                ]
+                for kwargs in iteration_kwargs
+            }
+            for future in as_completed(future_to_iteration):
+                iteration_results.append(future.result())
+                completed_iterations += 1
+                if verbose:
+                    _print_progress(completed_iterations, total_iterations)
+                _emit_progress(
+                    progress_callback,
+                    stage="perturbative_iterations",
+                    message=(
+                        f"{model_type}: perturbative iterations complete "
+                        f"{completed_iterations} of {total_iterations}"
+                    ),
+                    current=completed_iterations,
+                    total=total_iterations,
+                    fraction=completed_iterations / float(total_iterations),
+                )
+        iteration_results.sort(key=lambda item: int(item["iteration"]))
+    else:
+        for kwargs in iteration_kwargs:
+            result = _run_perturbative_iteration(**kwargs)
+            iteration_results.append(result)
+            completed_iterations += 1
+            if verbose:
+                _print_progress(completed_iterations, total_iterations)
+            _emit_progress(
+                progress_callback,
+                stage="perturbative_iterations",
+                message=(
+                    f"{model_type}: perturbative iteration {completed_iterations} "
+                    f"of {total_iterations}"
+                ),
+                current=completed_iterations,
+                total=total_iterations,
+                fraction=completed_iterations / float(total_iterations),
+            )
 
-        run = run_single_model_workflow(
-            df=perturbed,
-            model_type=model_type,
-            transform_type=transform_type,
-            unknown_sample=unknown_class,
-            class_column=class_column,
-            random_state=random_state,
-            compute_pairwise=compute_pairwise,
-            plot_everything=False,
-            write_files=write_files,
-            output_dir=iter_out,
-            plot_output_dir=None,
-            max_depth=max_depth,
-            exclude_columns=exclude_columns,
-            pairwise_plot_order=pairwise_plot_order,
-            save_cluster_data=save_cluster_data,
-            save_untransformed=save_untransformed,
-            verbose=False,
-        )
-
-        hs_i = run["hs_per_depth"].copy()
-        hs_i["iteration"] = it
+    hs_iters = []
+    dihs_iters = []
+    pairwise_depth_iterations = []
+    artifacts = {
+        "iteration_dirs": [
+            result["iteration_dir"]
+            for result in iteration_results
+            if result.get("iteration_dir") is not None
+        ]
+    }
+    for result in iteration_results:
+        hs_i = result["hs_per_depth"].copy()
+        hs_i["iteration"] = int(result["iteration"])
         hs_iters.append(hs_i)
 
-        dihs_i = run["dihs_total"].copy()
-        dihs_i["iteration"] = it
+        dihs_i = result["dihs_total"].copy()
+        dihs_i["iteration"] = int(result["iteration"])
         dihs_iters.append(dihs_i)
 
-        if compute_pairwise and run["pairwise_per_depth_matrices"] is not None:
-            pairwise_depth_iterations.append(run["pairwise_per_depth_matrices"])
-        if verbose:
-            _print_progress(it + 1, n_iterations)
-        _emit_progress(
-            progress_callback,
-            stage="perturbative_iterations",
-            message=f"{model_type}: perturbative iteration {it + 1} of {total_iterations}",
-            current=it + 1,
-            total=total_iterations,
-            fraction=(it + 1) / float(total_iterations),
-        )
+        if compute_pairwise and result["pairwise_per_depth_matrices"] is not None:
+            pairwise_depth_iterations.append(result["pairwise_per_depth_matrices"])
 
     hs_iterations = pd.concat(hs_iters, ignore_index=True) if hs_iters else pd.DataFrame()
     dihs_iterations_native = (
@@ -606,6 +752,8 @@ def perturbative_simple_run_workflow(
         "pairwise_depth_matrices_per_iteration": (
             pairwise_depth_iterations if compute_pairwise else None
         ),
+        "uncertainty_summary": dict(uncertainty_model.summary),
+        "uncertainty_sources": uncertainty_sources,
         "artifacts": artifacts,
     }
     _log(verbose, "Perturbative run completed.")
@@ -646,11 +794,17 @@ def perturbative_triple_run_workflow(
     save_untransformed: bool = False,
     verbose: bool = True,
     progress_callback=None,
+    uncertainty_config: dict[str, Any] | None = None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     model_results = {}
     _log(verbose, "Starting perturbative triple run...")
     total_models = len(SUPPORTED_MODELS)
     total_iterations = max(int(n_iterations), 1)
+    worker_count = min(_normalize_n_jobs(n_jobs), total_models)
 
     _emit_progress(
         progress_callback,
@@ -661,66 +815,97 @@ def perturbative_triple_run_workflow(
         fraction=0.0,
     )
 
+    model_kwargs = {}
     for model_index, model in enumerate(SUPPORTED_MODELS):
-        _log(verbose, f"Model {model}:")
         model_out = os.path.join(output_dir, model) if write_files else output_dir
         model_plot_out = (
             os.path.join(plot_output_dir, model)
             if (plot_output_dir is not None and write_files)
             else plot_output_dir
         )
+        model_kwargs[model] = {
+            "df": df,
+            "model_type": model,
+            "transform_type": transform_type,
+            "unknown_sample": unknown_sample,
+            "class_column": class_column,
+            "random_state": random_state,
+            "n_iterations": n_iterations,
+            "major_cols": major_cols,
+            "trace_cols": trace_cols,
+            "major_error": major_error,
+            "trace_error": trace_error,
+            "perturbation_seed": perturbation_seed,
+            "compute_pairwise": compute_pairwise,
+            "plot_everything": plot_everything,
+            "write_files": write_files,
+            "output_dir": model_out,
+            "plot_output_dir": model_plot_out,
+            "max_depth": max_depth,
+            "exclude_columns": exclude_columns,
+            "pairwise_plot_order": pairwise_plot_order,
+            "integration_depth": integration_depth,
+            "save_cluster_data": save_cluster_data,
+            "save_untransformed": save_untransformed,
+            "verbose": verbose,
+            "uncertainty_config": uncertainty_config,
+            "n_jobs": 1 if worker_count > 1 else n_jobs,
+            "gmm_n_init": gmm_n_init,
+            "gmm_covariance_type": gmm_covariance_type,
+            "gmm_reg_covar": gmm_reg_covar,
+        }
 
-        def _model_progress(payload: dict[str, Any], *, _model_index=model_index, _model=model):
-            local_total = int(payload.get("total", total_iterations) or total_iterations)
-            local_current = payload.get("current")
-            local_fraction = payload.get("fraction")
-            if local_fraction is None and local_current is not None and local_total:
-                local_fraction = float(local_current) / float(local_total)
-            if local_fraction is None:
-                local_fraction = 0.0
-            overall_fraction = (_model_index + min(max(float(local_fraction), 0.0), 1.0)) / float(
-                total_models
-            )
-            overall_current = None
-            overall_total = total_models * local_total
-            if local_current is not None:
-                overall_current = (_model_index * local_total) + int(local_current)
-            _emit_progress(
-                progress_callback,
-                stage=str(payload.get("stage", "perturbative_models")),
-                message=str(payload.get("message", f"{_model}: perturbative run")),
-                current=overall_current,
-                total=overall_total,
-                fraction=overall_fraction,
-            )
+        if worker_count == 1 and progress_callback is not None:
+            def _model_progress(payload: dict[str, Any], *, _model_index=model_index, _model=model):
+                local_total = int(payload.get("total", total_iterations) or total_iterations)
+                local_current = payload.get("current")
+                local_fraction = payload.get("fraction")
+                if local_fraction is None and local_current is not None and local_total:
+                    local_fraction = float(local_current) / float(local_total)
+                if local_fraction is None:
+                    local_fraction = 0.0
+                overall_fraction = (
+                    _model_index + min(max(float(local_fraction), 0.0), 1.0)
+                ) / float(total_models)
+                overall_current = None
+                overall_total = total_models * local_total
+                if local_current is not None:
+                    overall_current = (_model_index * local_total) + int(local_current)
+                _emit_progress(
+                    progress_callback,
+                    stage=str(payload.get("stage", "perturbative_models")),
+                    message=str(payload.get("message", f"{_model}: perturbative run")),
+                    current=overall_current,
+                    total=overall_total,
+                    fraction=overall_fraction,
+                )
 
-        model_results[model] = perturbative_simple_run_workflow(
-            df=df,
-            model_type=model,
-            transform_type=transform_type,
-            unknown_sample=unknown_sample,
-            class_column=class_column,
-            random_state=random_state,
-            n_iterations=n_iterations,
-            major_cols=major_cols,
-            trace_cols=trace_cols,
-            major_error=major_error,
-            trace_error=trace_error,
-            perturbation_seed=perturbation_seed,
-            compute_pairwise=compute_pairwise,
-            plot_everything=plot_everything,
-            write_files=write_files,
-            output_dir=model_out,
-            plot_output_dir=model_plot_out,
-            max_depth=max_depth,
-            exclude_columns=exclude_columns,
-            pairwise_plot_order=pairwise_plot_order,
-            integration_depth=integration_depth,
-            save_cluster_data=save_cluster_data,
-            save_untransformed=save_untransformed,
-            verbose=verbose,
-            progress_callback=_model_progress if progress_callback is not None else None,
-        )
+            model_kwargs[model]["progress_callback"] = _model_progress
+
+    if worker_count > 1:
+        completed_models = {}
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            future_to_model = {
+                executor.submit(_run_perturbative_model_parallel_task, kwargs): model
+                for model, kwargs in model_kwargs.items()
+            }
+            for completed_count, future in enumerate(as_completed(future_to_model), start=1):
+                model = future_to_model[future]
+                completed_models[model] = future.result()
+                _emit_progress(
+                    progress_callback,
+                    stage="perturbative_models",
+                    message=f"{model}: perturbative run complete",
+                    current=completed_count * total_iterations,
+                    total=total_models * total_iterations,
+                    fraction=completed_count / float(total_models),
+                )
+        for model in SUPPORTED_MODELS:
+            model_results[model] = completed_models[model]
+    else:
+        for model in SUPPORTED_MODELS:
+            _log(verbose, f"Model {model}:")
+            model_results[model] = perturbative_simple_run_workflow(**model_kwargs[model])
 
     hs_mean_all = pd.concat(
         [model_results[m]["hs_mean_per_depth"] for m in SUPPORTED_MODELS], ignore_index=True

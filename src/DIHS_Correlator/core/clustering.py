@@ -8,10 +8,12 @@ os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.mixture import GaussianMixture
 
-def create_model(model_type, random_state=None, **kwargs):
+
+def create_model(model_type, random_state=None, model_params=None, **kwargs):
     """
     This function builds the clustering model based on the specified type; it also controls the initialization parameters in the non-deterministic models
     """
+    params = dict(model_params or {})
 
     if model_type == "agglomerative":
         return AgglomerativeClustering(n_clusters=2, linkage="ward", **kwargs)
@@ -19,9 +21,9 @@ def create_model(model_type, random_state=None, **kwargs):
         return GaussianMixture(
             n_components=2,
             random_state=random_state,
-            n_init=10,
-            covariance_type="diag",
-            reg_covar=1e-4,
+            n_init=int(params.get("gmm_n_init", 10)),
+            covariance_type=str(params.get("gmm_covariance_type", "diag")),
+            reg_covar=float(params.get("gmm_reg_covar", 1e-4)),
             **kwargs,
         )
     if model_type == "kmeans":
@@ -39,6 +41,7 @@ def recursive_cluster(
     path="",
     random_state=None,
     class_column="controlcode",
+    model_params=None,
 ):
     """
     This function is for recursively clustering the data and storing the resulting hierarchical tree
@@ -57,13 +60,16 @@ def recursive_cluster(
         x = df[features].to_numpy(dtype=float)
 
         # Check for cases where clustering would fail due to lack of variability
-        unique_rows = np.unique(x, axis=0)
-        if unique_rows.shape[0] < 2:
+        if np.all(np.ptp(x, axis=0) == 0):
             df[col] = 0
             return df, cluster_data_store
 
         # Fit the model and predict cluster labels
-        model = create_model(model_type, random_state=random_state)
+        model = create_model(
+            model_type,
+            random_state=random_state,
+            model_params=model_params,
+        )
         labels = model.fit_predict(x)
 
         # Check whether clustering produced meaningful results, i.e. at least 2 clusters and not all samples in one cluster (leads to infinite recursion)
@@ -119,6 +125,7 @@ def recursive_cluster(
                 path=current_path,
                 random_state=random_state,
                 class_column=class_column,
+                model_params=model_params,
             )
             result.append(sub_result)
             cluster_data_store.update(sub_clusters)

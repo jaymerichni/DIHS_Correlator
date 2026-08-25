@@ -89,12 +89,15 @@ For the notebooks, open `scripts/1a_synthetic_scenario_gen.ipynb` and `scripts/2
 
 3. **Perturbative single/triple (`perturbative_simple_run`, `perturbative_triple_run`)**
 - Propagates measurement uncertainty via repeated perturbation.
-- Produces ensemble summaries, Top-1 frequencies, and margin statistics.
+- Supports legacy major/trace uncertainty plus hierarchical `uncertainty_config` inputs with `cell > feature > group > global` precedence.
+- Produces ensemble summaries, Top-1 frequencies, margin statistics, and uncertainty-coverage provenance tables.
+- Accepts `n_jobs` for deterministic process-level parallelism and expert Gaussian settings (`gmm_n_init`, `gmm_covariance_type`, `gmm_reg_covar`).
 - Accepts `integration_depth` to force both DIHS summaries and ensemble pairwise plots to use the same cumulative depth.
 
 4. **Pseudo-unknown calibration (`pseudo_unknown_run`)**
 - Performs controlled positive/negative pseudo-unknown experiments.
 - Estimates threshold-dependent resolvedness behavior.
+- Accepts `n_jobs` for deterministic outer-loop parallel execution.
 
 5. **Integrated resolvedness workflow (`perturbative_triple_run_with_resolvedness`)**
 - Combines perturbative triple analysis with Top-1 pseudo-unknown validation.
@@ -137,6 +140,31 @@ hs_per_depth = simple_run(
 )
 ```
 
+## Advanced Perturbative Example
+
+```python
+from DIHS_Correlator import perturbative_simple_run
+
+result = perturbative_simple_run(
+    df=df,
+    model_type="kmeans",
+    transform_type="clr",
+    class_column="controlcode",
+    unknown_sample="Unknown_A",
+    n_iterations=200,
+    n_jobs=4,
+    uncertainty_config={
+        "global": {"value": 0.05},
+        "features": {"SIO2N": {"value": 0.01}},
+        "cell_table": cell_uncertainty_df,
+        "row_id_column": "sample_id",
+    },
+    gmm_n_init=2,
+    compute_pairwise=False,
+    return_details=True,
+)
+```
+
 ## Graphical Interface
 
 This repository includes a packaged Flask app for running the main workflows from a browser. You can also use the online version at `https://tephracorrelator.geo3bcn.csic.es/`
@@ -159,7 +187,7 @@ The app starts a local server on `http://127.0.0.1:5000` by default. It currentl
 - `perturbative_triple_run`
 - `perturbative_triple_run_with_resolvedness`
 
-The browser UI is designed for local, single-user runs. It provides progress tracking for perturbative and resolvedness workflows, collapsible result sections, and a zoom/pan plot viewer. Relative output directories entered in the form are resolved from the directory where you launch the app.
+The browser UI is designed for local, single-user runs. It provides progress tracking for perturbative and resolvedness workflows, collapsible result sections, a zoom/pan plot viewer, and advanced fields for `n_jobs`, expert Gaussian settings, and JSON-based perturbative uncertainty configuration. Relative output directories entered in the form are resolved from the directory where you launch the app.
 
 ## Input Expectations
 
@@ -168,7 +196,7 @@ The browser UI is designed for local, single-user runs. It provides progress tra
 - Feature columns: numeric columns not excluded by `exclude_columns`.
 - Transformation options: `none`, `ilr`, `clr`, `scaled`.
 
-For perturbative workflows, major and trace perturbation columns can be passed explicitly. If omitted, default normalized geochemical column names are resolved when present.
+For perturbative workflows, major and trace perturbation columns can be passed explicitly. If omitted, default normalized geochemical column names are resolved when present. Advanced perturbative runs may also pass an `uncertainty_config` dictionary containing `global`, `groups`, `features`, `cell_values`, `cell_table`, and optional `row_id_column` entries.
 
 ## Output Conventions
 
@@ -187,6 +215,9 @@ Hierarchical depths are reported in the manuscript using one-based numbering for
 
 - Non-deterministic models (`kmeans`, `gaussian`) accept `random_state` for reproducibility.
 - Perturbative summaries are computed at the maximum common depth across iterations by default. Passing `integration_depth` to perturbative workflows forces both reported DIHS summaries and ensemble pairwise DIHS matrices to use that same cumulative depth.
+- Parallel perturbative and pseudo-unknown execution preserves deterministic ordering under fixed seeds by assigning one explicit seed per worker task.
+- Triple perturbative workflows use `n_jobs` at the model layer; single-model perturbative workflows use it at the iteration layer to avoid nested parallelism.
+- Gaussian expert settings are additive and opt-in; the historical slower defaults remain available.
 - Resolvedness calibration supports target precision levels and threshold reporting.
 
 ## Reproducing

@@ -110,6 +110,10 @@ def _run_pseudo_unknown_for_top1(
     output_dir: str,
     verbose: bool,
     progress_callback=None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     top1_key = top1_candidate["top1_class_key"]
     top1_mask = _class_match_mask(pseudo_df[class_column], top1_candidate["top1_class"])
@@ -150,6 +154,10 @@ def _run_pseudo_unknown_for_top1(
         "output_dir": output_dir,
         "plot_output_dir": None,
         "verbose": verbose,
+        "n_jobs": n_jobs,
+        "gmm_n_init": gmm_n_init,
+        "gmm_covariance_type": gmm_covariance_type,
+        "gmm_reg_covar": gmm_reg_covar,
     }
     if (
         progress_callback is not None
@@ -192,6 +200,11 @@ def perturbative_triple_run_with_resolvedness_workflow(
     verbose: bool = True,
     return_details: bool = False,
     progress_callback=None,
+    uncertainty_config: dict[str, Any] | None = None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
     # Optional function overrides for dependency injection.
     perturbative_simple_run_fn=None,
     pseudo_unknown_run_fn=None,
@@ -413,6 +426,11 @@ def perturbative_triple_run_with_resolvedness_workflow(
             "save_cluster_data": save_cluster_data,
             "save_untransformed": save_untransformed,
             "verbose": verbose,
+            "uncertainty_config": uncertainty_config,
+            "n_jobs": n_jobs,
+            "gmm_n_init": gmm_n_init,
+            "gmm_covariance_type": gmm_covariance_type,
+            "gmm_reg_covar": gmm_reg_covar,
         }
         perturbative_params = inspect.signature(perturbative_simple_run_fn).parameters
         if "progress_callback" in perturbative_params:
@@ -530,6 +548,10 @@ def perturbative_triple_run_with_resolvedness_workflow(
                     write_files=write_files,
                     output_dir=pseudo_output_dir,
                     verbose=verbose,
+                    n_jobs=n_jobs,
+                    gmm_n_init=gmm_n_init,
+                    gmm_covariance_type=gmm_covariance_type,
+                    gmm_reg_covar=gmm_reg_covar,
                     progress_callback=_make_model_phase_progress(
                         model_index=model_index,
                         model_name=model,

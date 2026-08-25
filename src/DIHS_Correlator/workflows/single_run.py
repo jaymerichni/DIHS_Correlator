@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -22,14 +23,22 @@ from DIHS_Correlator.viz.hs_curves import plot_hs_curves
 from DIHS_Correlator.viz.pairwise import plot_pairwise_matrix
 
 from DIHS_Correlator.workflows.utils import (
+    _build_model_params,
+    _clamp_worker_threads,
     _log,
     _normalize_transform_type,
+    _normalize_n_jobs,
     _prepare_working_df,
     _resolve_unknown_class,
 )
 
 SUPPORTED_MODELS = ("agglomerative", "kmeans", "gaussian")
 TRANSFORM_NAME_TO_ID = {v: k for k, v in BASE_TRANSFORMATIONS.items()}
+
+
+def _run_single_model_parallel_task(kwargs: dict[str, Any]) -> dict[str, Any]:
+    _clamp_worker_threads()
+    return run_single_model_workflow(**kwargs)
 
 
 class CorrelationRunner:
@@ -72,6 +81,7 @@ class CorrelationRunner:
         write_outputs=True,
         max_depth=100,
         return_intermediates=False,
+        model_params=None,
     ):
         """
         Given a dataset, model type and transformation, run the clustering and metric computation.
@@ -106,6 +116,7 @@ class CorrelationRunner:
             random_state=random_state,
             unknown_class=unknown_class,
             class_column=class_column,
+            model_params=model_params,
         )
 
         if self.save_cluster_data:
@@ -226,6 +237,7 @@ def run_single_model_workflow(
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
+    model_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     model = model_type.lower().strip()
     if model not in SUPPORTED_MODELS:
@@ -254,6 +266,7 @@ def run_single_model_workflow(
         compute_pairwise=compute_pairwise,
         write_outputs=write_files,
         max_depth=max_depth,
+        model_params=model_params,
     )
 
     artifacts: dict[str, Any] = {}
@@ -337,37 +350,59 @@ def triple_run_workflow(
     save_cluster_data: bool = False,
     save_untransformed: bool = False,
     verbose: bool = True,
+    n_jobs: int = 1,
+    model_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run agglomerative, kmeans and gaussian under one shared configuration."""
     model_results = {}
     _log(verbose, "Starting triple run (agglomerative, kmeans, gaussian)...")
+    worker_count = min(_normalize_n_jobs(n_jobs), len(SUPPORTED_MODELS))
+
+    model_kwargs = {}
     for model in SUPPORTED_MODELS:
-        _log(verbose, f"Running model: {model}")
         model_out = os.path.join(output_dir, model) if write_files else output_dir
         model_plot_out = (
             os.path.join(plot_output_dir, model)
             if (plot_output_dir is not None and write_files)
             else plot_output_dir
         )
-        model_results[model] = run_single_model_workflow(
-            df=df,
-            model_type=model,
-            transform_type=transform_type,
-            unknown_sample=unknown_sample,
-            class_column=class_column,
-            random_state=random_state,
-            compute_pairwise=compute_pairwise,
-            plot_everything=plot_everything,
-            write_files=write_files,
-            output_dir=model_out,
-            plot_output_dir=model_plot_out,
-            max_depth=max_depth,
-            exclude_columns=exclude_columns,
-            pairwise_plot_order=pairwise_plot_order,
-            save_cluster_data=save_cluster_data,
-            save_untransformed=save_untransformed,
-            verbose=verbose,
-        )
+        model_kwargs[model] = {
+            "df": df,
+            "model_type": model,
+            "transform_type": transform_type,
+            "unknown_sample": unknown_sample,
+            "class_column": class_column,
+            "random_state": random_state,
+            "compute_pairwise": compute_pairwise,
+            "plot_everything": plot_everything,
+            "write_files": write_files,
+            "output_dir": model_out,
+            "plot_output_dir": model_plot_out,
+            "max_depth": max_depth,
+            "exclude_columns": exclude_columns,
+            "pairwise_plot_order": pairwise_plot_order,
+            "save_cluster_data": save_cluster_data,
+            "save_untransformed": save_untransformed,
+            "verbose": verbose,
+            "model_params": model_params,
+        }
+
+    if worker_count > 1:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            future_to_model = {
+                executor.submit(_run_single_model_parallel_task, kwargs): model
+                for model, kwargs in model_kwargs.items()
+            }
+            completed = {}
+            for future in as_completed(future_to_model):
+                model = future_to_model[future]
+                completed[model] = future.result()
+            for model in SUPPORTED_MODELS:
+                model_results[model] = completed[model]
+    else:
+        for model in SUPPORTED_MODELS:
+            _log(verbose, f"Running model: {model}")
+            model_results[model] = run_single_model_workflow(**model_kwargs[model])
 
     hs_combined = pd.concat(
         [model_results[m]["hs_per_depth"] for m in SUPPORTED_MODELS], ignore_index=True

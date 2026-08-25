@@ -175,6 +175,31 @@
             </label>
           </div>
 
+          <h3>Advanced Model Settings</h3>
+          <div class="grid form-grid">
+            <label>
+              Parallel jobs
+              <input type="number" name="n_jobs" min="1" step="1" value="{{ form_state.n_jobs }}">
+              <small>For triple workflows this fans out across models; for single perturbative runs it fans out across iterations.</small>
+            </label>
+
+            <label>
+              Gaussian `n_init`
+              <input type="number" name="gmm_n_init" min="1" step="1" value="{{ form_state.gmm_n_init }}">
+            </label>
+
+            <label>
+              Gaussian covariance type
+              <input type="text" name="gmm_covariance_type" value="{{ form_state.gmm_covariance_type }}">
+              <small>Examples: `diag`, `full`, `tied`, `spherical`.</small>
+            </label>
+
+            <label>
+              Gaussian `reg_covar`
+              <input type="number" name="gmm_reg_covar" min="0" step="0.0001" value="{{ form_state.gmm_reg_covar }}">
+            </label>
+          </div>
+
           <div id="perturbative-settings" class="{% if form_state.mode not in perturbative_modes %}hidden{% endif %}">
             <h3>Perturbative Ensemble Settings</h3>
             <div class="grid form-grid">
@@ -201,6 +226,12 @@
               <label>
                 Integration depth
                 <input type="text" name="integration_depth" value="{{ form_state.integration_depth_text }}">
+              </label>
+
+              <label>
+                Uncertainty config (JSON)
+                <textarea name="uncertainty_config" rows="8" placeholder='{"global":{"value":0.05},"features":{"SIO2N":{"value":0.01}}}'>{{ form_state.uncertainty_config_text }}</textarea>
+                <small>Optional advanced hierarchy. Supports `global`, `groups`, `features`, `cell_values`, `cell_table`, and `row_id_column`.</small>
               </label>
 
               <label>

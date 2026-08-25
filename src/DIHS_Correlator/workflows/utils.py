@@ -1,5 +1,6 @@
 """Shared workflow utilities and helpers."""
 
+import os
 from typing import Any
 import warnings
 
@@ -174,3 +175,40 @@ def _resolve_major_trace_columns(
         )
 
     return resolved_major, resolved_trace
+
+
+def _normalize_n_jobs(n_jobs: int | None) -> int:
+    """Normalize an n_jobs value to a positive worker count."""
+    if n_jobs is None:
+        return 1
+    value = int(n_jobs)
+    if value == 0:
+        raise ValueError("n_jobs cannot be 0.")
+    if value < 0:
+        return max(int(os.cpu_count() or 1), 1)
+    return max(value, 1)
+
+
+def _clamp_worker_threads() -> None:
+    """Clamp common BLAS/OpenMP thread pools for spawned worker processes."""
+    for env_name in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ[env_name] = "1"
+
+
+def _build_model_params(
+    *,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
+) -> dict[str, Any]:
+    """Build clustering-model configuration shared across workflow layers."""
+    return {
+        "gmm_n_init": int(gmm_n_init),
+        "gmm_covariance_type": str(gmm_covariance_type),
+        "gmm_reg_covar": float(gmm_reg_covar),
+    }

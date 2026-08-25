@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any, Iterable
 
 import numpy as np
@@ -10,8 +11,16 @@ from DIHS_Correlator.viz.pseudo_unknown import (
     plot_margin_histogram,
     plot_threshold_diagnostics,
 )
-from DIHS_Correlator.workflows.single_run import CorrelationRunner
-from DIHS_Correlator.workflows.utils import _normalize_transform_type, _class_key
+from DIHS_Correlator.workflows.single_run import run_single_model_workflow
+from DIHS_Correlator.workflows.utils import (
+    _build_model_params,
+    _clamp_worker_threads,
+    _class_key,
+    _class_match_mask,
+    _normalize_n_jobs,
+    _normalize_transform_type,
+    _prepare_working_df,
+)
 
 
 TRANSFORM_NAME_TO_ID = {v: k for k, v in BASE_TRANSFORMATIONS.items()}
@@ -35,6 +44,67 @@ def _make_pseudo_unknown_label(
         candidate = f"{base}__{counter}"
         counter += 1
     return candidate
+
+
+def _run_pseudo_unknown_task(
+    *,
+    base_df: pd.DataFrame,
+    source_class: Any,
+    source_class_key: str,
+    class_column: str,
+    sampled_indices: tuple[Any, ...],
+    case: str,
+    unknown_label: str,
+    model_type: str,
+    transform_type: str,
+    random_state: int | None,
+    max_depth: int,
+    exclude_columns,
+    sample_size: int,
+    iteration: int,
+    run_id: int,
+    model_params: dict[str, Any] | None,
+) -> pd.DataFrame:
+    sampled_index_list = list(sampled_indices)
+    class_mask = _class_match_mask(base_df[class_column], source_class)
+
+    run_df = base_df.copy()
+    run_df.loc[sampled_index_list, class_column] = unknown_label
+    if case == "negative":
+        keep_mask = (~class_mask) | run_df.index.isin(sampled_index_list)
+        run_df = run_df.loc[keep_mask].copy()
+    unknown_class = unknown_label
+    true_source_present = case == "positive"
+
+    run = run_single_model_workflow(
+        df=run_df,
+        model_type=model_type,
+        transform_type=transform_type,
+        unknown_sample=unknown_class,
+        class_column=class_column,
+        random_state=random_state,
+        compute_pairwise=False,
+        plot_everything=False,
+        write_files=False,
+        max_depth=max_depth,
+        exclude_columns=exclude_columns,
+        verbose=False,
+        model_params=model_params,
+    )
+    hs_run = run["hs_per_depth"].copy()
+    hs_run["run_id"] = int(run_id)
+    hs_run["source_class"] = source_class
+    hs_run["source_class_key"] = source_class_key
+    hs_run["case"] = case
+    hs_run["iteration"] = int(iteration)
+    hs_run["sample_size"] = int(sample_size)
+    hs_run["true_source_present"] = bool(true_source_present)
+    return hs_run
+
+
+def _run_pseudo_unknown_parallel_task(kwargs: dict[str, Any]) -> pd.DataFrame:
+    _clamp_worker_threads()
+    return _run_pseudo_unknown_task(**kwargs)
 
 
 def _extract_margin_result(
@@ -362,6 +432,10 @@ def run_pseudo_unknown_experiments(
     plot_output_dir: str | None = None,
     verbose: bool = True,
     progress_callback=None,
+    n_jobs: int = 1,
+    gmm_n_init: int = 10,
+    gmm_covariance_type: str = "diag",
+    gmm_reg_covar: float = 1e-4,
 ):
     """
     Run positive and negative pseudo-unknown experiments for each eligible class.
@@ -372,8 +446,7 @@ def run_pseudo_unknown_experiments(
     Negative case: sampled rows are relabeled as unknown and all remaining rows
     of that source class are removed from the dataset.
     """
-    if class_column not in df.columns:
-        raise ValueError(f"Class column '{class_column}' not found in dataframe.")
+    work_df = _prepare_working_df(df, class_column=class_column)
     if int(sample_size) <= 0:
         raise ValueError("sample_size must be > 0.")
     if int(n_iterations) <= 0:
@@ -388,11 +461,17 @@ def run_pseudo_unknown_experiments(
     model = str(model_type).strip().lower()
     if model not in {"agglomerative", "kmeans", "gaussian"}:
         raise ValueError(f"Unsupported model_type='{model_type}'.")
-    transform_id = _normalize_transform_type(transform_type)
+    _normalize_transform_type(transform_type)
+    model_params = _build_model_params(
+        gmm_n_init=gmm_n_init,
+        gmm_covariance_type=gmm_covariance_type,
+        gmm_reg_covar=gmm_reg_covar,
+    )
+    effective_random_state = random_state if model in ("kmeans", "gaussian") else None
 
     excluded_keys = {_class_key(v) for v in (excluded_classes or [])}
-    class_counts = df[class_column].value_counts(dropna=False)
-    unique_classes = sorted(df[class_column].dropna().unique(), key=_class_sort_key)
+    class_counts = work_df[class_column].value_counts(dropna=False)
+    unique_classes = sorted(work_df[class_column].dropna().unique(), key=_class_sort_key)
 
     eligible_classes = []
     skipped_rows = []
@@ -420,16 +499,11 @@ def run_pseudo_unknown_experiments(
         raise ValueError("No eligible classes available for pseudo-unknown experiments.")
 
     rng = np.random.default_rng(random_state)
-    runner = CorrelationRunner(
-        base_output_dir=output_dir,
-        save_trees=False,
-        save_cluster_data=False,
-        save_untransformed=False,
+    worker_count = min(
+        _normalize_n_jobs(n_jobs),
+        max(len(eligible_classes) * int(n_iterations) * 2, 1),
     )
-    exclude_set = set(exclude_columns) | {class_column}
-    runner.set_feature_columns(df.copy(), exclude=tuple(exclude_set), verbose=False)
-
-    hs_rows = []
+    task_kwargs = []
     run_id_counter = 0
     total_runs = len(eligible_classes) * int(n_iterations) * 2
     completed_runs = 0
@@ -450,59 +524,99 @@ def run_pseudo_unknown_experiments(
 
     for source_class in eligible_classes:
         source_key = _class_key(source_class)
-        class_mask = df[class_column].apply(lambda x: _class_key(x) == source_key)
-        class_indices = df.index[class_mask].to_numpy()
+        class_mask = _class_match_mask(work_df[class_column], source_class)
+        class_indices = work_df.index[class_mask].to_numpy()
 
         if verbose:
             print(f"Source class: {source_class} ({len(class_indices)} rows)")
 
         for iteration in range(int(n_iterations)):
-            sampled_indices = rng.choice(class_indices, size=int(sample_size), replace=False)
-            sampled_index_set = set(sampled_indices.tolist())
-
-            positive_df = df.copy()
+            sampled_indices = tuple(
+                rng.choice(class_indices, size=int(sample_size), replace=False).tolist()
+            )
             positive_unknown = _make_pseudo_unknown_label(
-                df[class_column].unique(), source_class, iteration, "positive"
+                work_df[class_column].unique(), source_class, iteration, "positive"
             )
-            positive_df.loc[list(sampled_index_set), class_column] = positive_unknown
-
             negative_unknown = _make_pseudo_unknown_label(
-                positive_df[class_column].unique(), source_class, iteration, "negative"
+                work_df[class_column].unique(), source_class, iteration, "negative"
             )
-            negative_df = positive_df.copy()
-            negative_df.loc[list(sampled_index_set), class_column] = negative_unknown
-            keep_mask = (~class_mask) | negative_df.index.isin(sampled_index_set)
-            negative_df = negative_df.loc[keep_mask].copy()
-
-            positive_run = runner.run_combination(
-                data=positive_df,
-                transform_type=transform_id,
-                model_type=model,
-                random_state=random_state if model in ("kmeans", "gaussian") else None,
-                unknown_class=positive_unknown,
-                class_column=class_column,
-                compute_pairwise=False,
-                write_outputs=False,
-                max_depth=max_depth,
+            task_kwargs.append(
+                {
+                    "base_df": work_df,
+                    "source_class": source_class,
+                    "source_class_key": source_key,
+                    "class_column": class_column,
+                    "sampled_indices": sampled_indices,
+                    "case": "positive",
+                    "unknown_label": positive_unknown,
+                    "model_type": model,
+                    "transform_type": transform_type,
+                    "random_state": effective_random_state,
+                    "max_depth": max_depth,
+                    "exclude_columns": exclude_columns,
+                    "sample_size": int(sample_size),
+                    "iteration": int(iteration),
+                    "run_id": run_id_counter,
+                    "model_params": model_params,
+                }
             )
-            hs_positive = positive_run["metrics_per_depth"].copy()
-            hs_positive["run_id"] = run_id_counter
-            hs_positive["source_class"] = source_class
-            hs_positive["source_class_key"] = _class_key(source_class)
-            hs_positive["case"] = "positive"
-            hs_positive["iteration"] = iteration
-            hs_positive["sample_size"] = int(sample_size)
-            hs_positive["true_source_present"] = True
-            hs_rows.append(hs_positive)
             run_id_counter += 1
+            task_kwargs.append(
+                {
+                    "base_df": work_df,
+                    "source_class": source_class,
+                    "source_class_key": source_key,
+                    "class_column": class_column,
+                    "sampled_indices": sampled_indices,
+                    "case": "negative",
+                    "unknown_label": negative_unknown,
+                    "model_type": model,
+                    "transform_type": transform_type,
+                    "random_state": effective_random_state,
+                    "max_depth": max_depth,
+                    "exclude_columns": exclude_columns,
+                    "sample_size": int(sample_size),
+                    "iteration": int(iteration),
+                    "run_id": run_id_counter,
+                    "model_params": model_params,
+                }
+            )
+            run_id_counter += 1
+
+    hs_rows = []
+    if worker_count > 1:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(_run_pseudo_unknown_parallel_task, kwargs)
+                for kwargs in task_kwargs
+            ]
+            for future in as_completed(futures):
+                hs_rows.append(future.result())
+                completed_runs += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "stage": "pseudo_unknown",
+                            "message": (
+                                f"Pseudo-unknown calibration | completed "
+                                f"{completed_runs} of {total_runs} runs"
+                            ),
+                            "current": completed_runs,
+                            "total": total_runs,
+                            "fraction": completed_runs / float(total_runs),
+                        }
+                    )
+    else:
+        for kwargs in task_kwargs:
+            hs_rows.append(_run_pseudo_unknown_task(**kwargs))
             completed_runs += 1
             if progress_callback is not None:
                 progress_callback(
                     {
                         "stage": "pseudo_unknown",
                         "message": (
-                            f"Pseudo-unknown calibration | {source_class} | "
-                            f"positive case {iteration + 1} of {int(n_iterations)}"
+                            f"Pseudo-unknown calibration | completed "
+                            f"{completed_runs} of {total_runs} runs"
                         ),
                         "current": completed_runs,
                         "total": total_runs,
@@ -510,43 +624,13 @@ def run_pseudo_unknown_experiments(
                     }
                 )
 
-            negative_run = runner.run_combination(
-                data=negative_df,
-                transform_type=transform_id,
-                model_type=model,
-                random_state=random_state if model in ("kmeans", "gaussian") else None,
-                unknown_class=negative_unknown,
-                class_column=class_column,
-                compute_pairwise=False,
-                write_outputs=False,
-                max_depth=max_depth,
-            )
-            hs_negative = negative_run["metrics_per_depth"].copy()
-            hs_negative["run_id"] = run_id_counter
-            hs_negative["source_class"] = source_class
-            hs_negative["source_class_key"] = _class_key(source_class)
-            hs_negative["case"] = "negative"
-            hs_negative["iteration"] = iteration
-            hs_negative["sample_size"] = int(sample_size)
-            hs_negative["true_source_present"] = False
-            hs_rows.append(hs_negative)
-            run_id_counter += 1
-            completed_runs += 1
-            if progress_callback is not None:
-                progress_callback(
-                    {
-                        "stage": "pseudo_unknown",
-                        "message": (
-                            f"Pseudo-unknown calibration | {source_class} | "
-                            f"negative case {iteration + 1} of {int(n_iterations)}"
-                        ),
-                        "current": completed_runs,
-                        "total": total_runs,
-                        "fraction": completed_runs / float(total_runs),
-                    }
-                )
-
-    hs_iterations = pd.concat(hs_rows, ignore_index=True) if hs_rows else pd.DataFrame()
+    hs_iterations = (
+        pd.concat(hs_rows, ignore_index=True)
+        .sort_values(["run_id", "depth_level", "neighbor_unit"], kind="stable")
+        .reset_index(drop=True)
+        if hs_rows
+        else pd.DataFrame()
+    )
     dihs_iterations_by_depth, common_depth_level = _recompute_dihs_for_all_depths(
         hs_iterations
     )
@@ -557,13 +641,13 @@ def run_pseudo_unknown_experiments(
     else:
         dihs_iterations = dihs_iterations_by_depth[
             dihs_iterations_by_depth["integration_depth"] == common_depth_level
-        ].copy()
+        ].copy().sort_values(["run_id", "neighbor_unit"], kind="stable").reset_index(drop=True)
         run_results_by_depth = _summarize_margin_results_from_dihs_all_depths(
             dihs_iterations_by_depth
         )
         results_df = run_results_by_depth[
             run_results_by_depth["integration_depth"] == common_depth_level
-        ].copy()
+        ].copy().sort_values(["run_id"], kind="stable").reset_index(drop=True)
     skipped_df = pd.DataFrame(skipped_rows)
     eligible_df = pd.DataFrame(
         {
