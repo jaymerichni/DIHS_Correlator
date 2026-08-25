@@ -1,0 +1,20 @@
+{
+  "dataset_path": "C:\\Users\\jayme\\Desktop\\Multi_Feature_Uncertainty_Enhancement\\DIHS_Correlator\\data\\processed\\synthetic_scenarios\\all_scenarios_combined.csv",
+  "profiles": {
+    "medium": "scenario == 'persistent_overlap'",
+    "stress": "scenario in ['persistent_overlap', 'shallow_only_overlap']",
+    "small": "scenario == 'compact_separated'"
+  },
+  "transform_type": "scaled",
+  "class_column": "class_label",
+  "unknown_sample": "X",
+  "random_state": 123,
+  "perturbation_seed": 321,
+  "max_depth": 20,
+  "exclude_columns": [
+    "scenario",
+    "role",
+    "is_true_source"
+  ],
+  "measured_runs": 5
+}

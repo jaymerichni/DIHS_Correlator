@@ -1,0 +1,5 @@
+run_id,source_class,source_class_key,iteration,case,sample_size,unknown_class,top1_class,top1_class_key,top2_class,top2_class_key,top1_dihs,top2_dihs,dihs_margin,true_source_present,top1_is_true_source,is_true_positive,integration_depth,resolved
+0,A,A,0,positive,5,__pseudo_unknown__positive__A__0,X,X,A,A,0.6362425061978815,0.5390707626194393,0.09717174357844216,True,False,False,8,False
+1,A,A,0,negative,5,__pseudo_unknown__negative__A__0,X,X,B,B,0.6034058229352347,0.5599071218524435,0.04349870108279119,False,False,False,8,False
+2,B,B,0,positive,5,__pseudo_unknown__positive__B__0,A,A,B,B,0.5264702865833284,0.5159358201238875,0.01053446645944089,True,False,False,8,False
+3,B,B,0,negative,5,__pseudo_unknown__negative__B__0,A,A,X,X,0.524010774493354,0.4439076992423849,0.0801030752509691,False,False,False,8,False

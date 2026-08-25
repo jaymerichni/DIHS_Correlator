@@ -31,6 +31,23 @@ def create_model(model_type, random_state=None, model_params=None, **kwargs):
     raise ValueError(f"Model type '{model_type}' is not supported.")
 
 
+def _depth_column_name(model_name: str, depth: int) -> str:
+    return f"Depth_{model_name}_{depth}" if depth > 0 else f"Depth_{model_name}"
+
+
+def _all_rows_identical(values: np.ndarray) -> bool:
+    if values.shape[0] <= 1:
+        return True
+    return bool(np.all(values[1:] == values[:1]))
+
+
+def _single_class(values: np.ndarray, row_positions: np.ndarray) -> bool:
+    if row_positions.size <= 1:
+        return True
+    first_value = values[row_positions[0]]
+    return bool(np.all(values[row_positions] == first_value))
+
+
 def recursive_cluster(
     df,
     features,
@@ -48,87 +65,101 @@ def recursive_cluster(
     """
 
     model_name = model_type.title()
-    col = f"Depth_{model_name}_{depth}" if depth > 0 else f"Depth_{model_name}"
+    root_depth = int(depth)
     cluster_data_store = {}
+    row_count = len(df)
+    if row_count == 0:
+        return df.copy(), cluster_data_store
 
-    # Stopping conditions: max depth reached, too few samples, or only one class present
-    if depth >= max_depth or len(df) <= 3 or df[class_column].nunique() == 1:
-        df[col] = 0
-        return df, cluster_data_store
+    feature_matrix = df[list(features)].to_numpy(dtype=float, copy=True)
+    class_values = df[class_column].to_numpy(copy=False)
+    row_ids = df.index.to_numpy(copy=False)
+    depth_capacity = max(int(max_depth) - root_depth, 1)
+    depth_labels = np.full((depth_capacity, row_count), np.nan, dtype=float)
+    visited_depths: set[int] = set()
 
-    try:
-        x = df[features].to_numpy(dtype=float)
+    def _store_labels(current_depth: int, row_positions: np.ndarray, labels: np.ndarray | int) -> None:
+        rel_depth = current_depth - root_depth
+        depth_labels[rel_depth, row_positions] = labels
+        visited_depths.add(current_depth)
 
-        # Check for cases where clustering would fail due to lack of variability
-        if np.all(np.ptp(x, axis=0) == 0):
-            df[col] = 0
-            return df, cluster_data_store
+    def _recurse(row_positions: np.ndarray, current_depth: int, current_path: str) -> np.ndarray:
+        col = _depth_column_name(model_name, current_depth)
 
-        # Fit the model and predict cluster labels
-        model = create_model(
-            model_type,
-            random_state=random_state,
-            model_params=model_params,
-        )
-        labels = model.fit_predict(x)
+        # Stopping conditions: max depth reached, too few samples, or only one class present.
+        if (
+            current_depth >= max_depth
+            or row_positions.size <= 3
+            or _single_class(class_values, row_positions)
+        ):
+            _store_labels(current_depth, row_positions, 0)
+            return row_positions
 
-        # Check whether clustering produced meaningful results, i.e. at least 2 clusters and not all samples in one cluster (leads to infinite recursion)
-        uniq, cnts = np.unique(labels, return_counts=True)
-        if uniq.size < 2 or cnts.max() == len(df):
-            df[col] = 0
-            return df, cluster_data_store
+        try:
+            x = feature_matrix[row_positions]
 
-        # Store clustering outcome in Dataframe as the value of a column named after depth
-        df[col] = labels
+            # Check for cases where clustering would fail due to lack of variability.
+            if _all_rows_identical(x):
+                _store_labels(current_depth, row_positions, 0)
+                return row_positions
 
-        # For each cluster, store metadata for downstream workflow-level persistence.
-        for label in np.unique(labels):
-            cluster_data = df[df[col] == label].copy()
-            current_path = f"{path}_{label}" if path else f"{label}"
-            cluster_name = f"{unknown_class}_path{current_path}"
-            cluster_data_store[cluster_name] = {
-                "unknown_class": unknown_class,
-                "path": current_path,
-                "depth": depth,
-                "label": int(label),
-                "indices": cluster_data.index.tolist(),
-                "data_path": None,
-            }
-
-    except Exception as e:
-        print(f"Clustering failed at depth {depth} with error: {e}")
-        df[col] = 0
-        return df, cluster_data_store
-
-    """ 
-    Recurse on children: 
-    - iterate over each subset of the data corresponding to the current depth's clusters 
-    - combine the results into a single DataFrame
-    - cluster_data_store is updated with the results from each recursive call
-    """
-    result = []
-    for label in np.unique(df[col]):
-        sub_df = df[df[col] == label]
-
-        # Stopping conditions for recursion: max depth reached, too few samples, or only one class present
-        if depth + 1 >= max_depth or len(sub_df) <= 3 or sub_df[class_column].nunique() == 1:
-            result.append(sub_df)
-        else:
-            current_path = f"{path}_{label}" if path else f"{label}"
-            sub_result, sub_clusters = recursive_cluster(
-                sub_df.copy(),
-                features,
+            # Fit the model and predict cluster labels.
+            model = create_model(
                 model_type,
-                depth=depth + 1,
-                max_depth=max_depth,
-                unknown_class=unknown_class,
-                path=current_path,
                 random_state=random_state,
-                class_column=class_column,
                 model_params=model_params,
             )
-            result.append(sub_result)
-            cluster_data_store.update(sub_clusters)
+            labels = np.asarray(model.fit_predict(x), dtype=float)
 
-    # Return a dataframe similar to the input with added cluster labels + the dictionary containing metadata for each cluster
-    return pd.concat(result), cluster_data_store
+            # Check whether clustering produced meaningful results, i.e. at least 2 clusters
+            # and not all samples in one cluster (leads to infinite recursion).
+            uniq, cnts = np.unique(labels, return_counts=True)
+            if uniq.size < 2 or cnts.max() == row_positions.size:
+                _store_labels(current_depth, row_positions, 0)
+                return row_positions
+
+            _store_labels(current_depth, row_positions, labels)
+
+            ordered_children = []
+            for label in uniq:
+                label_mask = labels == label
+                child_positions = row_positions[label_mask]
+                next_path = f"{current_path}_{int(label)}" if current_path else f"{int(label)}"
+                cluster_name = f"{unknown_class}_path{next_path}"
+                cluster_data_store[cluster_name] = {
+                    "unknown_class": unknown_class,
+                    "path": next_path,
+                    "depth": current_depth,
+                    "label": int(label),
+                    "indices": row_ids[child_positions].tolist(),
+                    "data_path": None,
+                }
+
+                if (
+                    current_depth + 1 >= max_depth
+                    or child_positions.size <= 3
+                    or _single_class(class_values, child_positions)
+                ):
+                    ordered_children.append(child_positions)
+                else:
+                    ordered_children.append(
+                        _recurse(child_positions, current_depth + 1, next_path)
+                    )
+            return np.concatenate(ordered_children)
+
+        except Exception as e:
+            print(f"Clustering failed at depth {current_depth} with error: {e}")
+            _store_labels(current_depth, row_positions, 0)
+            return row_positions
+
+    ordered_positions = _recurse(np.arange(row_count, dtype=int), root_depth, path)
+    output = df.iloc[ordered_positions].copy()
+    for current_depth in sorted(visited_depths):
+        rel_depth = current_depth - root_depth
+        values = depth_labels[rel_depth, ordered_positions]
+        col = _depth_column_name(model_name, current_depth)
+        output[col] = values
+        if not np.isnan(values).any():
+            output[col] = output[col].astype(int)
+
+    return output, cluster_data_store

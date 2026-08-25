@@ -1,0 +1,2 @@
+integration_depth,target_precision,resolvedness_threshold,precision_above_threshold,coverage_above_threshold,n_runs_above_threshold,n_total_runs,n_valid_runs,n_eligible_classes,min_runs_above_threshold,common_depth_level
+8,0.95,,,,0,4,4,2,1,8
