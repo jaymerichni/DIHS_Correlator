@@ -18,7 +18,6 @@ function setupAnalysisForm(state) {
   const modelGroup = document.getElementById("model-group");
   const perturbativeSettings = document.getElementById("perturbative-settings");
   const resolvednessSettings = document.getElementById("resolvedness-settings");
-  const outputDirInput = document.getElementById("output-dir");
 
   if (
     !classColumnSelect ||
@@ -26,8 +25,7 @@ function setupAnalysisForm(state) {
     !modeSelect ||
     !modelGroup ||
     !perturbativeSettings ||
-    !resolvednessSettings ||
-    !outputDirInput
+    !resolvednessSettings
   ) {
     return;
   }
@@ -52,7 +50,7 @@ function setupAnalysisForm(state) {
     }
   }
 
-  function syncModeUI(useInitialValue) {
+  function syncModeUI() {
     const mode = modeSelect.value;
     modelGroup.classList.toggle(
       "hidden",
@@ -66,18 +64,14 @@ function setupAnalysisForm(state) {
       "hidden",
       !state.resolvednessModes.includes(mode),
     );
-
-    if (!useInitialValue && state.defaultOutputDirs[mode]) {
-      outputDirInput.value = state.defaultOutputDirs[mode];
-    }
   }
 
   classColumnSelect.addEventListener("change", () => syncUnknownOptions(""));
-  modeSelect.addEventListener("change", () => syncModeUI(false));
+  modeSelect.addEventListener("change", syncModeUI);
 
   syncUnknownOptions(state.initialUnknownToken);
   modeSelect.value = state.initialMode;
-  syncModeUI(true);
+  syncModeUI();
 }
 
 function setupJobPolling() {

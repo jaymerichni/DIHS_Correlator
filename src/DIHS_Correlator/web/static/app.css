@@ -148,6 +148,21 @@
       text-transform: uppercase;
     }
 
+    .funding {
+      color: var(--muted-strong);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    .funding h2 {
+      margin-bottom: 8px;
+      font-size: 1rem;
+    }
+
+    .funding p {
+      margin: 0;
+    }
+
     .grid {
       display: grid;
       gap: 20px;

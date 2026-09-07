@@ -284,12 +284,7 @@ def _default_form_state(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "random_state": 42,
         "compute_pairwise": True,
         "plot_everything": False,
-        "write_files": False,
         "exclude_columns": [],
-        "output_dir": DEFAULT_OUTPUT_DIRS["simple_run"],
-        "plot_output_dir": "",
-        "save_cluster_data": False,
-        "save_untransformed": False,
         "model_type": MODEL_OPTIONS[0],
         "n_iterations": 100,
         "major_error": 0.02,
@@ -437,15 +432,7 @@ def _form_state_from_request(dataset_entry: dict[str, Any]) -> dict[str, Any]:
             ).strip(),
             "compute_pairwise": _bool_from_form("compute_pairwise"),
             "plot_everything": _bool_from_form("plot_everything"),
-            "write_files": _bool_from_form("write_files"),
             "exclude_columns": request.form.getlist("exclude_columns"),
-            "output_dir": request.form.get("output_dir", state["output_dir"]).strip(),
-            "plot_output_dir": request.form.get(
-                "plot_output_dir",
-                state["plot_output_dir"],
-            ).strip(),
-            "save_cluster_data": _bool_from_form("save_cluster_data"),
-            "save_untransformed": _bool_from_form("save_untransformed"),
             "model_type": request.form.get("model_type", state["model_type"]).strip(),
             "n_iterations": request.form.get(
                 "n_iterations",
@@ -627,16 +614,11 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
     seed_enabled = _bool_from_form("seed_enabled")
     compute_pairwise = _bool_from_form("compute_pairwise")
     plot_everything = _bool_from_form("plot_everything")
-    write_files = _bool_from_form("write_files")
-    save_cluster_data = _bool_from_form("save_cluster_data")
-    save_untransformed = _bool_from_form("save_untransformed")
     exclude_columns = _validate_columns(
         request.form.getlist("exclude_columns"),
         columns,
         "exclude columns",
     )
-    output_dir_text = request.form.get("output_dir", DEFAULT_OUTPUT_DIRS[mode]).strip()
-    plot_output_dir_text = request.form.get("plot_output_dir", "").strip()
 
     form_state = {
         "mode": mode,
@@ -648,12 +630,7 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "random_state": random_state,
         "compute_pairwise": compute_pairwise,
         "plot_everything": plot_everything,
-        "write_files": write_files,
         "exclude_columns": exclude_columns,
-        "output_dir": output_dir_text,
-        "plot_output_dir": plot_output_dir_text,
-        "save_cluster_data": save_cluster_data,
-        "save_untransformed": save_untransformed,
         "model_type": request.form.get("model_type", MODEL_OPTIONS[0]).strip(),
         "n_iterations": int(request.form.get("n_iterations", "100")),
         "major_error": float(request.form.get("major_error", "0.02")),
@@ -696,13 +673,14 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "random_state": random_state if seed_enabled else None,
         "compute_pairwise": compute_pairwise,
         "plot_everything": plot_everything,
-        "write_files": write_files,
+        # Hosted runs expose downloads; never accept server export options.
+        "write_files": False,
         "output_dir": "",
         "plot_output_dir": None,
         "max_depth": max_depth,
         "exclude_columns": tuple(exclude_columns),
-        "save_cluster_data": save_cluster_data,
-        "save_untransformed": save_untransformed,
+        "save_cluster_data": False,
+        "save_untransformed": False,
         "verbose": True,
     }
 
@@ -731,32 +709,9 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
     internal_output_dir = temp_root / "outputs"
     internal_output_dir.mkdir(parents=True, exist_ok=True)
 
-    if write_files:
-        common["output_dir"] = _resolve_output_dir(
-            output_dir_text,
-            DEFAULT_OUTPUT_DIRS[mode],
-        )
-        common["plot_output_dir"] = (
-            _resolve_output_dir(
-                plot_output_dir_text,
-                f"{DEFAULT_OUTPUT_DIRS[mode]}_plots",
-            )
-            if plot_output_dir_text
-            else None
-        )
-    else:
-        common["output_dir"] = str(internal_output_dir)
-        if plot_everything:
-            common["plot_output_dir"] = (
-                _resolve_output_dir(
-                    plot_output_dir_text,
-                    f"{DEFAULT_OUTPUT_DIRS[mode]}_plots",
-                )
-                if plot_output_dir_text
-                else str((temp_root / "plots").resolve())
-            )
-        else:
-            common["plot_output_dir"] = None
+    common["output_dir"] = str(internal_output_dir)
+    if plot_everything:
+        common["plot_output_dir"] = str((temp_root / "plots").resolve())
 
     return {
         "mode": mode,
@@ -1187,7 +1142,6 @@ def _render_page(
         ],
         model_options=MODEL_OPTIONS,
         transform_options=TRANSFORM_OPTIONS,
-        default_output_dirs=DEFAULT_OUTPUT_DIRS,
         model_required_modes=sorted(MODEL_REQUIRED_MODES),
         perturbative_modes=sorted(PERTURBATIVE_MODES),
         resolvedness_modes=sorted(RESOLVEDNESS_MODES),

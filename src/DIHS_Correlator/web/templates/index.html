@@ -140,31 +140,6 @@
               Create plots
             </label>
 
-            <label class="inline-check">
-              <input type="checkbox" name="write_files" {% if form_state.write_files %}checked{% endif %}>
-              Write output files
-            </label>
-
-            <label class="inline-check">
-              <input type="checkbox" name="save_cluster_data" {% if form_state.save_cluster_data %}checked{% endif %}>
-              Save cluster data
-            </label>
-
-            <label class="inline-check">
-              <input type="checkbox" name="save_untransformed" {% if form_state.save_untransformed %}checked{% endif %}>
-              Save untransformed cluster data
-            </label>
-
-            <label>
-              Output directory
-              <input id="output-dir" type="text" name="output_dir" value="{{ form_state.output_dir }}">
-            </label>
-
-            <label>
-              Plot output directory
-              <input type="text" name="plot_output_dir" value="{{ form_state.plot_output_dir }}">
-            </label>
-
             <label>
               Exclude columns from numeric features
               <select name="exclude_columns" multiple>
@@ -324,7 +299,7 @@
         <div class="card-head">
           <div>
             <h2>4. Results</h2>
-            <p class="status">Analysis complete{% if result.write_files %} | Outputs written under {{ result.output_dir }}{% endif %}</p>
+            <p class="status">Analysis complete</p>
           </div>
         </div>
 
@@ -417,11 +392,15 @@
         </div>
       {% endif %}
     {% endif %}
+
+    <footer class="panel funding" aria-labelledby="funding-title">
+      <h2 id="funding-title">Funding</h2>
+      <p>This software was supported by the Spanish Ministry of Science, Innovation and Universities under the project TURVO (PID2023-147255NB-I00), funded by MCIN/AEI/10.13039/501100011033 and co-funded by the European Union – ERDF “A way of making Europe”.</p>
+    </footer>
   </div>
 
   {% if dataset and form_state %}
     <script id="app-state" type="application/json">{{ {
-      "defaultOutputDirs": default_output_dirs,
       "initialMode": form_state.mode,
       "initialUnknownToken": form_state.unknown_sample_token,
       "modelRequiredModes": model_required_modes,
