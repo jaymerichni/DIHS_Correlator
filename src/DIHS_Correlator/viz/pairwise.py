@@ -123,7 +123,7 @@ def plot_pairwise_matrix(
         fig_scale,
         0.62 if annotate else 0.48,
         tick_fs / 52.0,
-        annot_fs / 42.0 if annotate else 0.0,
+        annot_fs / 40.0 if annotate else 0.0,
     )
     width_from_cells = cell_size * n
     height_from_cells = cell_size * n

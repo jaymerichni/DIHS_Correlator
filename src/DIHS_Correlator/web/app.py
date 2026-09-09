@@ -255,7 +255,7 @@ def _default_form_state(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         "transform_type": "clr",
         "max_depth": 100,
         "seed_enabled": False,
-        "random_state": 42,
+        "random_state": 0,
         "compute_pairwise": True,
         "plot_everything": False,
         "write_files": False,
@@ -594,7 +594,7 @@ def _parse_form_submission(dataset_entry: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Unsupported transform: {transform_type}")
 
     max_depth = int(request.form.get("max_depth", "100"))
-    random_state = int(request.form.get("random_state", "42"))
+    random_state = int(request.form.get("random_state", "0"))
     seed_enabled = _bool_from_form("seed_enabled")
     compute_pairwise = _bool_from_form("compute_pairwise")
     plot_everything = _bool_from_form("plot_everything")

@@ -14,9 +14,9 @@
       --danger-bg: rgba(255, 59, 48, 0.08);
       --danger-line: rgba(255, 59, 48, 0.18);
       --danger-ink: #b42318;
-      --shadow-lg: 0 28px 80px rgba(15, 23, 42, 0.08);
-      --shadow-md: 0 16px 42px rgba(15, 23, 42, 0.06);
-      --shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.04);
+      --shadow-lg: 0 28px 80px rgba(15, 23, 40, 0.08);
+      --shadow-md: 0 16px 40px rgba(15, 23, 40, 0.06);
+      --shadow-sm: 0 8px 24px rgba(15, 23, 40, 0.04);
       --radius-xl: 32px;
       --radius-lg: 24px;
       --radius-md: 18px;
@@ -82,7 +82,7 @@
     }
 
     .hero {
-      padding: 40px 42px 36px;
+      padding: 40px 40px 36px;
       margin-bottom: 20px;
       border-radius: calc(var(--radius-xl) + 4px);
       box-shadow: var(--shadow-lg);
@@ -509,7 +509,7 @@
       border-radius: 28px;
       border: 1px solid rgba(255, 255, 255, 0.16);
       background: rgba(255, 255, 255, 0.9);
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+      box-shadow: 0 24px 60px rgba(15, 23, 40, 0.24);
     }
 
     .viewer-toolbar {
@@ -555,7 +555,7 @@
       user-select: none;
       transform-origin: center center;
       will-change: transform;
-      box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+      box-shadow: 0 12px 40px rgba(15, 23, 40, 0.12);
     }
 
     details {

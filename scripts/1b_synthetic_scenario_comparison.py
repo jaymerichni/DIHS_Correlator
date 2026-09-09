@@ -42,7 +42,7 @@ CLASS_COLUMN = "class_label"
 MODEL_TYPES = ("agglomerative", "gaussian", "kmeans")
 SAMPLE_SIZES = tuple(range(1, 21))
 MAX_SAMPLING_ITERATIONS = 5000
-RANDOM_STATE = 42
+RANDOM_STATE = 0
 MAX_DEPTH = 100
 N_WORKERS = 8
 
