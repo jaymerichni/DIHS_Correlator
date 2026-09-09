@@ -148,6 +148,92 @@
       text-transform: uppercase;
     }
 
+    .guide-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 18px 28px;
+    }
+
+    .guide-header > div {
+      flex: 1 1 360px;
+    }
+
+    .guide-header h2 {
+      margin-bottom: 10px;
+    }
+
+    .guide-header p,
+    .guide-preview p {
+      margin: 0;
+      color: var(--muted-strong);
+      line-height: 1.6;
+    }
+
+    .guide-download {
+      display: inline-flex;
+      justify-content: center;
+      padding: 13px 22px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .guide-download:hover {
+      background: var(--accent-strong);
+    }
+
+    .guide-panel a:focus-visible,
+    .guide-preview summary:focus-visible,
+    .guide-frame:focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 4px;
+    }
+
+    .guide-preview {
+      margin-top: 20px;
+    }
+
+    .guide-preview summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .guide-preview > p {
+      margin-top: 16px;
+    }
+
+    .guide-frame {
+      display: block;
+      width: 100%;
+      height: min(72vh, 760px);
+      min-height: 360px;
+      margin-top: 16px;
+      padding: 16px;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #e9e9ec;
+    }
+
+    .guide-frame img {
+      display: block;
+      width: 100%;
+      max-width: 893px;
+      height: auto;
+      margin: 0 auto 16px;
+      background: #fff;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .guide-frame img:last-child {
+      margin-bottom: 0;
+    }
+
     .funding {
       color: var(--muted-strong);
       font-size: 0.95rem;

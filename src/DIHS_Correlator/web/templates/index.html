@@ -27,6 +27,32 @@
       </p>
     </section>
 
+    {% set guide_url = url_for('static', filename='branding/DIHS_Getting_Started_Guide_Web.pdf') %}
+    <section class="panel guide-panel" aria-labelledby="guide-title">
+      <div class="guide-header">
+        <div>
+          <h2 id="guide-title">Getting Started Guide</h2>
+          <p>Learn how to prepare your CSV, configure an analysis, and interpret and download results.</p>
+        </div>
+        <a class="guide-download" href="{{ guide_url }}" download="DIHS_Getting_Started_Guide_Web.pdf">Download PDF</a>
+      </div>
+      <details class="guide-preview">
+        <summary>Preview guide</summary>
+        <p>Scroll through all 13 pages below, or <a class="link" href="{{ guide_url }}" target="_blank" rel="noopener noreferrer">open the PDF in a new tab</a>.</p>
+        <div class="guide-frame" role="region" aria-label="Getting Started Guide page preview" tabindex="0">
+          {% for page_number in range(1, 14) %}
+            <img
+              src="{{ url_for('static', filename='branding/guide-preview/page-%02d.png' % page_number) }}"
+              alt="Getting Started Guide, page {{ page_number }} of 13"
+              loading="lazy"
+              width="893"
+              height="1263"
+            >
+          {% endfor %}
+        </div>
+      </details>
+    </section>
+
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         <div class="flash-list">

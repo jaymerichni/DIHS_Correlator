@@ -2,5 +2,5 @@ include README.md
 include LICENSE
 include environment.yml
 recursive-include src/DIHS_Correlator/web/templates *.html
-recursive-include src/DIHS_Correlator/web/static *.css *.js *.png
+recursive-include src/DIHS_Correlator/web/static *.css *.js *.png *.pdf
 recursive-include tests *.py

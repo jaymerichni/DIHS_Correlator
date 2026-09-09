@@ -46,7 +46,7 @@ package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.package-data]
-"DIHS_Correlator.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/branding/*.png"]
+"DIHS_Correlator.web" = ["templates/*.html", "static/*.css", "static/*.js", "static/branding/*.png", "static/branding/*.pdf", "static/branding/guide-preview/*.png"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
