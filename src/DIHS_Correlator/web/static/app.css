@@ -258,6 +258,11 @@
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     }
 
+    #perturbative-settings,
+    #resolvedness-settings {
+      margin-top: 24px;
+    }
+
     .results-grid,
     .plot-grid,
     .artifact-grid {
